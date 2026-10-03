@@ -1,0 +1,9 @@
+{
+  "configId": "default",
+  "name_surname": true,
+  "email": true,
+  "org_name": true,
+  "location": true,
+  "sql": true,
+  "bank_account_num": true
+}
