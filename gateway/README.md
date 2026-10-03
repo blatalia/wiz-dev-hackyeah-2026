@@ -78,6 +78,17 @@ a notice that no further retrieval is available.
 
 This uses the existing session history, so refreshing the browser resets the budget.
 
+## Runtime token usage
+
+`gateway.guardrails.guardrails.total_tokens_spent` and `total_cost_spent` accumulate
+the reported input/output tokens and dollar cost for input checks, tool selection
+and summaries. These counters are held in memory
+across conversations, reset when the process restarts, and are separate for each
+server worker. Missing metrics contribute zero. These totals are not included
+in API responses or displayed in Streamlit.
+The gateway logs `Total tokens spent: <total> | Total cost: $<total>` after each
+processed chat turn.
+
 ## Docker
 
 Build from the repository root (the gateway also imports `llm` and `mcp`):

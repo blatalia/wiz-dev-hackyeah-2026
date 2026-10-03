@@ -134,6 +134,12 @@ def chat(request: ChatRequest):
             getattr(exc, "status_code", None),
         )
         return PlainTextResponse("The gateway could not process your request.", status_code=502)
+    finally:
+        logger.info(
+            "Total tokens spent: %s | Total cost: $%.8f",
+            guardrails.total_tokens_spent,
+            guardrails.total_cost_spent,
+        )
 
 
 if __name__ == "__main__":
