@@ -29,6 +29,8 @@ export type EventStats = {
   topPrincipals: { principalId: string; total: number; blocked: number }[];
 };
 
+export type GatewayConfig = { configId: string; flags: Record<string, boolean> };
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -117,4 +119,16 @@ export function getEvent(requestId: string) {
 
 export function getStats(from: string, to: string) {
   return request<EventStats>("/events/stats" + queryString({ from, to }));
+}
+
+export function getConfig() {
+  return request<GatewayConfig>("/config");
+}
+
+export function updateConfig(flags: Record<string, boolean>) {
+  return request<GatewayConfig>("/config", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ flags }),
+  });
 }

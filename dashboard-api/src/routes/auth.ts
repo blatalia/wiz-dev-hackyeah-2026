@@ -60,7 +60,7 @@ authRouter.post("/refresh", async (req, res) => {
     return;
   }
 
-  await store.revokeRefreshToken(row.id); // старий токен більше не діє
+  await store.revokeRefreshToken(row.id);
 
   const user = await store.findUserById(row.userId);
   const roles = user ? await store.getUserRoles(user.id) : [];

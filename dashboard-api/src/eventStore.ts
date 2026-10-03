@@ -40,7 +40,6 @@ export interface EventStore {
   getStats(from: Date, to: Date): Promise<EventStats>;
 }
 
-// Курсор = "час|requestId" у base64. Наступна сторінка починається після цього запису.
 export function encodeCursor(ts: Date | string, id: string) {
   const iso = typeof ts === "string" ? ts : ts.toISOString();
   return Buffer.from(`${iso}|${id}`).toString("base64url");
@@ -92,7 +91,7 @@ export class PostgresEventStore implements EventStore {
       where.push(`(ts, request_id) < ($${params.length - 1}::timestamptz, $${params.length}::text)`);
     }
 
-    params.push(f.limit + 1); // беремо на 1 більше, щоб знати, чи є наступна сторінка
+    params.push(f.limit + 1);
     const sql = `
       SELECT request_id, ts, principal_id, outcome, reason_code,
              primary_category, severity, latency_ms, config_version

@@ -2,7 +2,6 @@ import { Router } from "express";
 import { PostgresEventStore, decodeCursor, type EventStore } from "../eventStore";
 import { DynamoEventStore } from "../dynamoEventStore";
 
-// EVENT_STORE=dynamo читає події з DynamoDB gateway, інакше з локального Postgres
 const store: EventStore = process.env.EVENT_STORE === "dynamo"
   ? new DynamoEventStore()
   : new PostgresEventStore();
@@ -15,7 +14,6 @@ function str(v: unknown): string | undefined {
   return typeof v === "string" && v.trim() !== "" ? v.trim() : undefined;
 }
 
-// undefined = параметр не передали, null = передали, але це не дата
 function parseDate(v: unknown): Date | undefined | null {
   const s = str(v);
   if (s === undefined) return undefined;
@@ -23,7 +21,7 @@ function parseDate(v: unknown): Date | undefined | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
-// GET /events/stats  (має йти ДО /:requestId, інакше "stats" сприйметься як id)
+// GET /events/stats
 eventsRouter.get("/stats", async (req, res) => {
   const to = parseDate(req.query.to) ?? new Date();
   const from = parseDate(req.query.from) ?? new Date(to.getTime() - 7 * DAY_MS);

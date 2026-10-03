@@ -1,8 +1,8 @@
 import jwt from "jsonwebtoken";
 import type { CookieOptions } from "express";
 
-export const ACCESS_TTL_SEC = 15 * 60;            // 15 хвилин
-export const REFRESH_TTL_SEC = 7 * 24 * 60 * 60;  // 7 днів
+export const ACCESS_TTL_SEC = 15 * 60;
+export const REFRESH_TTL_SEC = 7 * 24 * 60 * 60;
 
 export type AccessPayload = { sub: string; email: string; roles: string[] };
 

@@ -181,6 +181,18 @@ td.empty { text-align: center; padding: 24px; }
   font: 12.5px/1.5 ui-monospace, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere;
 }
 
+/* config */
+.narrow { max-width: 640px; }
+.flags { list-style: none; margin: 12px 0; padding: 0; }
+.flags li { border-bottom: 1px solid var(--grid); }
+.flag { display: flex; align-items: center; gap: 12px; padding: 12px 0; cursor: pointer; }
+.flag input { width: 18px; height: 18px; margin: 0; padding: 0; accent-color: var(--accent); cursor: pointer; }
+.flag-name { flex: 1; }
+.flag-state { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.actions { display: flex; gap: 8px; margin-top: 12px; }
+.confirm { margin-top: 12px; padding: 12px; border: 1px solid var(--axis); border-radius: 8px; background: var(--page); }
+.confirm ul { margin: 8px 0 0; padding-left: 20px; }
+
 @media (max-width: 600px) {
   .topbar, .filters, main { padding-left: 16px; padding-right: 16px; }
   /* label on its own line so the bar keeps the full width */
