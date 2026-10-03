@@ -16,3 +16,17 @@ pii_to_anonymize:
   - STATE
   - STREET
   - USERNAME
+
+mcp_config:
+  - get_customer_contract_c014
+  - get_merger_review_excerpts
+  - get_customer_revenue
+  - get_management_accounts
+  - get_hr_payroll
+  - get_hr_aggregate
+  - get_kyc_details
+  - get_kyc_status
+  - get_third_party_note
+  - get_technical_appendix
+  - num_tool_calls
+  
