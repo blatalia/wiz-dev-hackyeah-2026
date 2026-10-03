@@ -1,6 +1,5 @@
 import { Check, TriangleAlert, X } from "lucide-react";
 
-// Outcome is a status, so it is never shown by color alone: icon + label, text in normal ink.
 export const OUTCOMES = [
   { key: "allowed", value: "ALLOWED", label: "Allowed", Icon: Check },
   { key: "flagged", value: "FLAGGED", label: "Flagged", Icon: TriangleAlert },

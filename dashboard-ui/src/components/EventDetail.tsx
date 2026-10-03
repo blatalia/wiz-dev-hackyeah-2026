@@ -48,7 +48,7 @@ function CopyButton({ value, label }: { value: string; label: string }) {
       await navigator.clipboard.writeText(value);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    } catch { /* clipboard unavailable: the text is still selectable */ }
+    } catch {}
   }
   return (
     <button className="btn small ghost" onClick={copy}>
@@ -58,7 +58,6 @@ function CopyButton({ value, label }: { value: string; label: string }) {
   );
 }
 
-// Where the time went: one bar split into the stages the gateway reports.
 function LatencyBreakdown({ performance }: { performance: GatewayEvent }) {
   const stages = STAGES
     .map((s) => ({ ...s, value: performance[s.key] }))
@@ -192,7 +191,6 @@ export function EventDetail({ requestId, onClose }: { requestId: string; onClose
       <div className={closing ? "backdrop closing" : "backdrop"} onClick={() => setClosing(true)} />
       <aside
         className={closing ? "drawer closing" : "drawer"} role="dialog" aria-label="Event details"
-        // unmount only after the slide-out animation has finished
         onAnimationEnd={(e) => { if (closing && e.target === e.currentTarget) onClose(); }}
       >
         <div className="drawer-head">

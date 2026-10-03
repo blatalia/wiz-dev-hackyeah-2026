@@ -1,14 +1,12 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { ArrowDownRight, ArrowUpRight, Minus, type LucideIcon } from "lucide-react";
 
-// Sets the --i custom property that staggers entrance animations.
 export function stagger(i: number): CSSProperties {
   return { "--i": i } as CSSProperties;
 }
 
 const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-// Animates from the previously shown number to the new one.
 export function useCountUp(value: number, duration = 900) {
   const [shown, setShown] = useState(0);
   const current = useRef(0);
@@ -42,8 +40,6 @@ export function Num({ value, digits = 0 }: { value: number; digits?: number }) {
   );
 }
 
-// Change against the previous period. Kept in neutral ink: whether "more blocked
-// requests" is good or bad depends on what the reader is looking for.
 export function Delta({ current, previous, period }: { current: number; previous: number; period: string }) {
   if (previous === 0) {
     return <span className="delta">{current === 0 ? `No change vs ${period}` : `Nothing in ${period}`}</span>;
@@ -95,7 +91,6 @@ export function Segmented<T extends string>({ label, options, value, onChange }:
   );
 }
 
-// Empty and error states: what happened, why, and what to do next.
 export function State({ Icon, title, children, action, tone = "neutral" }: {
   Icon: LucideIcon;
   title: string;
@@ -113,7 +108,6 @@ export function State({ Icon, title, children, action, tone = "neutral" }: {
   );
 }
 
-// JSON with light syntax colouring, built from React nodes (never innerHTML).
 export function highlightJson(json: string): ReactNode[] {
   const token = /("(?:\\.|[^"\\])*")(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g;
   const out: ReactNode[] = [];

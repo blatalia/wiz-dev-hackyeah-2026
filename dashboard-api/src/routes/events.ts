@@ -21,7 +21,6 @@ function parseDate(v: unknown): Date | undefined | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
-// GET /events/stats
 eventsRouter.get("/stats", async (req, res) => {
   const to = parseDate(req.query.to) ?? new Date();
   const from = parseDate(req.query.from) ?? new Date(to.getTime() - 7 * DAY_MS);
@@ -34,7 +33,6 @@ eventsRouter.get("/stats", async (req, res) => {
     res.status(400).json({ error: "'bucket' must be 'day' or 'hour'" });
     return;
   }
-  // hourly buckets over a long range would return thousands of points
   if (bucket === "hour" && to.getTime() - from.getTime() > 3 * DAY_MS) {
     res.status(400).json({ error: "'bucket=hour' supports ranges up to 3 days" });
     return;
@@ -42,7 +40,6 @@ eventsRouter.get("/stats", async (req, res) => {
   res.json(await store.getStats(from, to, bucket));
 });
 
-// GET /events
 eventsRouter.get("/", async (req, res) => {
   const q = req.query;
 
@@ -76,7 +73,6 @@ eventsRouter.get("/", async (req, res) => {
   }));
 });
 
-// GET /events/:requestId
 eventsRouter.get("/:requestId", async (req, res) => {
   const event = await store.getEvent(req.params.requestId);
   if (!event) {

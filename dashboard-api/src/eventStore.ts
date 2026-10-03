@@ -33,7 +33,6 @@ export type EventStats = {
     total: number; allowed: number; flagged: number; blocked: number;
     avgLatencyMs: number | null; p95LatencyMs: number | null;
   };
-  // one entry per bucket that has events; start is the bucket's first instant in UTC
   series: { start: string; allowed: number; flagged: number; blocked: number }[];
   topReasons: { reasonCode: string; count: number }[];
   topPrincipals: { principalId: string; total: number; blocked: number }[];

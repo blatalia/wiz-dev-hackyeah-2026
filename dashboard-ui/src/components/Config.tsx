@@ -1,27 +1,117 @@
 import { useEffect, useState } from "react";
-import {
-  ArrowRight, Building2, Check, CircleAlert, CloudOff, Database, Landmark, LoaderCircle, Mail, MapPin, RotateCw,
-  ToggleRight, User, type LucideIcon,
-} from "lucide-react";
-import { getConfig, updateConfig, type GatewayConfig } from "../api";
+import { ArrowRight, Check, CircleAlert, CloudOff, LoaderCircle, Minus, Plus, RotateCw, Settings2 } from "lucide-react";
+import { getConfig, updateConfig, type ConfigChange, type ConfigGroup, type GatewayConfig, type SettingValue } from "../api";
+import { humanize } from "../labels";
 import { State, stagger } from "./ui";
 
-// Friendly names for the flags we know about; any other flag is shown by its raw key.
-const KNOWN: Record<string, { label: string; Icon: LucideIcon }> = {
-  bank_account_num: { label: "Bank account numbers", Icon: Landmark },
-  email: { label: "Email addresses", Icon: Mail },
-  location: { label: "Locations", Icon: MapPin },
-  name_surname: { label: "Names and surnames", Icon: User },
-  org_name: { label: "Organisation names", Icon: Building2 },
-  sql: { label: "SQL", Icon: Database },
-};
+const groupTitle = (key: string) => (key === "" ? "General" : humanize(key));
+const show = (v: SettingValue) => (typeof v === "boolean" ? (v ? "On" : "Off") : v.toLocaleString("en-US"));
+const idOf = (group: string, key: string) => `${group}\n${key}`;
 
-const labelOf = (key: string) => KNOWN[key]?.label ?? key;
-const onOff = (v: boolean) => (v ? "On" : "Off");
+function draftOf(config: GatewayConfig) {
+  const draft: Record<string, SettingValue> = {};
+  for (const g of config.groups) {
+    for (const s of g.settings) draft[idOf(g.key, s.key)] = s.value;
+  }
+  return draft;
+}
+
+function NumberField({ label, value, disabled, onChange }: {
+  label: string; value: number; disabled: boolean; onChange: (value: number) => void;
+}) {
+  return (
+    <span className="stepper">
+      <button type="button" className="btn small icon" aria-label={`Decrease ${label}`}
+        disabled={disabled || value <= 0} onClick={() => onChange(Math.max(value - 1, 0))}>
+        <Minus size={14} />
+      </button>
+      <input
+        className="input" type="number" min={0} step={1} inputMode="numeric" aria-label={label}
+        value={value} disabled={disabled}
+        onChange={(e) => {
+          const next = Number(e.target.value);
+          if (e.target.value !== "" && Number.isInteger(next) && next >= 0) onChange(next);
+        }}
+      />
+      <button type="button" className="btn small icon" aria-label={`Increase ${label}`}
+        disabled={disabled} onClick={() => onChange(value + 1)}>
+        <Plus size={14} />
+      </button>
+    </span>
+  );
+}
+
+function Group({ group, index, draft, saved, saving, setValue }: {
+  group: ConfigGroup;
+  index: number;
+  draft: Record<string, SettingValue>;
+  saved: Record<string, SettingValue>;
+  saving: boolean;
+  setValue: (patch: Record<string, SettingValue>) => void;
+}) {
+  const settings = group.settings
+    .map((s) => ({ ...s, id: idOf(group.key, s.key), label: humanize(s.key) }))
+    .sort((a, b) =>
+      Number(typeof a.value === "boolean") - Number(typeof b.value === "boolean") || a.label.localeCompare(b.label));
+  const switches = settings.filter((s) => typeof s.value === "boolean");
+  const on = switches.filter((s) => draft[s.id] === true).length;
+  const setAll = (value: boolean) => setValue(Object.fromEntries(switches.map((s) => [s.id, value])));
+
+  return (
+    <section className="card table-card rise" style={stagger(index)}>
+      <div className="card-head group-head">
+        <div>
+          <h2>{groupTitle(group.key)}</h2>
+          <p className="card-sub">
+            {group.key && <span className="mono">{group.key}</span>}
+            {group.key && switches.length > 0 && " · "}
+            {switches.length > 0 && `${on} of ${switches.length} on`}
+          </p>
+        </div>
+        {switches.length > 1 && (
+          <div className="group-actions">
+            <button className="btn small ghost" disabled={saving || on === switches.length} onClick={() => setAll(true)}>All on</button>
+            <button className="btn small ghost" disabled={saving || on === 0} onClick={() => setAll(false)}>All off</button>
+          </div>
+        )}
+      </div>
+
+      <ul className="flags">
+        {settings.map((s) => {
+          const value = draft[s.id];
+          const changed = value !== saved[s.id];
+          return (
+            <li key={s.id}>
+              <label className={value === true ? "flag on" : "flag"}>
+                <span className="flag-text">
+                  <div className="flag-name">
+                    {changed && <span className="changed-dot" title="Unsaved change" />}
+                    {s.label}
+                  </div>
+                  <div className="flag-key mono">{s.key}</div>
+                </span>
+                {typeof value === "boolean" ? (
+                  <>
+                    <span className="flag-state">{show(value)}</span>
+                    <input className="switch" type="checkbox" role="switch" checked={value} disabled={saving}
+                      onChange={(e) => setValue({ [s.id]: e.target.checked })} />
+                  </>
+                ) : (
+                  <NumberField label={s.label} value={value} disabled={saving}
+                    onChange={(next) => setValue({ [s.id]: next })} />
+                )}
+              </label>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
 
 export function Config() {
   const [config, setConfig] = useState<GatewayConfig | null>(null);
-  const [draft, setDraft] = useState<Record<string, boolean>>({});
+  const [draft, setDraft] = useState<Record<string, SettingValue>>({});
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -30,7 +120,7 @@ export function Config() {
   function load() {
     setError(null);
     getConfig().then(
-      (c) => { setConfig(c); setDraft(c.flags); },
+      (c) => { setConfig(c); setDraft(draftOf(c)); },
       (e) => setError(e.message),
     );
   }
@@ -44,29 +134,30 @@ export function Config() {
 
   if (!config) {
     return error ? (
-      <div className="config">
-        <State Icon={CloudOff} tone="error" title="The gateway configuration could not be loaded"
-          action={<button className="btn" onClick={load}><RotateCw size={15} />Try again</button>}>
-          {error}. The configuration lives in the gateway's DynamoDB table, so the API needs the AWS region and
-          credentials in its environment.
-        </State>
-      </div>
-    ) : <div className="skeleton config" style={{ height: 460 }} />;
+      <State Icon={CloudOff} tone="error" title="The gateway configuration could not be loaded"
+        action={<button className="btn" onClick={load}><RotateCw size={15} />Try again</button>}>
+        {error}. The configuration lives in the gateway's DynamoDB table, so the API needs the AWS region and
+        credentials in its environment.
+      </State>
+    ) : <div className="config-grid"><div className="skeleton" style={{ height: 460 }} /><div className="skeleton" style={{ height: 460 }} /></div>;
   }
 
-  const keys = Object.keys(config.flags).sort();
-  const changed = keys.filter((k) => draft[k] !== config.flags[k]);
-  const enabled = keys.filter((k) => draft[k]).length;
+  const saved = draftOf(config);
+  const changes: (ConfigChange & { label: string; from: SettingValue })[] = config.groups.flatMap((g) =>
+    g.settings
+      .filter((s) => draft[idOf(g.key, s.key)] !== s.value)
+      .map((s) => ({
+        group: g.key, key: s.key, value: draft[idOf(g.key, s.key)], from: s.value,
+        label: `${groupTitle(g.key)} · ${humanize(s.key)}`,
+      })));
 
   async function save() {
-    if (!config) return;
     setSaving(true);
     setError(null);
     try {
-      // send only what changed, so someone else's edits to other flags are not overwritten
-      const updated = await updateConfig(Object.fromEntries(changed.map((k) => [k, draft[k]])));
+      const updated = await updateConfig(changes.map(({ group, key, value }) => ({ group, key, value })));
       setConfig(updated);
-      setDraft(updated.flags);
+      setDraft(draftOf(updated));
       setToast(true);
     } catch (e) {
       setError((e as Error).message);
@@ -77,53 +168,34 @@ export function Config() {
   }
 
   return (
-    <div className="stack config">
-      <section className="card table-card rise">
-        <div className="card-head" style={{ padding: "20px 20px 0" }}>
-          <div>
-            <h2>Gateway checks <span className="tag mono">{config.configId}</span></h2>
-            <p className="card-sub">
-              {enabled} of {keys.length} on. Saved changes apply to all gateway traffic.
-            </p>
-          </div>
-          <button className="btn small" onClick={load} disabled={saving}>
-            <RotateCw size={14} />Reload
-          </button>
-        </div>
+    <div className="stack">
+      <div className="config-bar rise">
+        <span className="muted">
+          <Settings2 size={15} /> Config <span className="tag mono">{config.configId}</span>
+          Saved changes apply to all gateway traffic.
+        </span>
+        <button className="btn small" onClick={load} disabled={saving}><RotateCw size={14} />Reload</button>
+      </div>
 
-        <ul className="flags">
-          {keys.map((k, i) => {
-            const Icon = KNOWN[k]?.Icon ?? ToggleRight;
-            const isChanged = draft[k] !== config.flags[k];
-            return (
-              <li key={k} className="rise" style={stagger(i + 1)}>
-                <label className={draft[k] ? "flag on" : "flag"}>
-                  <span className="flag-icon"><Icon size={18} /></span>
-                  <span className="flag-text">
-                    <div className="flag-name">{labelOf(k)}</div>
-                    <div className="flag-key mono">{k}</div>
-                  </span>
-                  <span className="flag-state">
-                    {isChanged && <span className="changed-dot" title="Unsaved change" />}
-                    {onOff(draft[k])}
-                  </span>
-                  <input
-                    className="switch" type="checkbox" role="switch" checked={draft[k]} disabled={saving}
-                    onChange={(e) => setDraft({ ...draft, [k]: e.target.checked })}
-                  />
-                </label>
-              </li>
-            );
-          })}
-        </ul>
-      </section>
+      {config.groups.length === 0 ? (
+        <State Icon={Settings2} title="This config has no settings yet">
+          The gateway's config item contains no on/off or numeric values.
+        </State>
+      ) : (
+        <div className="config-grid">
+          {config.groups.map((g, i) => (
+            <Group key={g.key} group={g} index={i + 1} draft={draft} saved={saved} saving={saving}
+              setValue={(patch) => setDraft({ ...draft, ...patch })} />
+          ))}
+        </div>
+      )}
 
       {error && <p className="form-error" role="alert"><CircleAlert size={16} />Could not save: {error}</p>}
 
-      {changed.length > 0 && !confirming && (
+      {changes.length > 0 && !confirming && (
         <div className="savebar" role="region" aria-label="Unsaved changes">
-          <span>{changed.length} unsaved {changed.length === 1 ? "change" : "changes"}</span>
-          <button className="btn ghost" onClick={() => setDraft(config.flags)}>Discard</button>
+          <span>{changes.length} unsaved {changes.length === 1 ? "change" : "changes"}</span>
+          <button className="btn ghost" onClick={() => setDraft(saved)}>Discard</button>
           <button className="btn primary" onClick={() => setConfirming(true)}>Review and apply</button>
         </div>
       )}
@@ -135,13 +207,13 @@ export function Config() {
             <h2 id="confirm-title">Apply these changes to the gateway?</h2>
             <p className="card-sub">They take effect for all traffic as soon as they are saved.</p>
             <ul className="changes">
-              {changed.map((k) => (
-                <li key={k}>
-                  <span>{labelOf(k)}</span>
+              {changes.map((c) => (
+                <li key={idOf(c.group, c.key)}>
+                  <span>{c.label}</span>
                   <span className="to">
-                    {onOff(config.flags[k])}
+                    {show(c.from)}
                     <span className="arrow"><ArrowRight size={14} /></span>
-                    <strong>{onOff(draft[k])}</strong>
+                    <strong>{show(c.value)}</strong>
                   </span>
                 </li>
               ))}

@@ -26,7 +26,6 @@ function readRefresh(token: unknown) {
   }
 }
 
-// POST /auth/login
 authRouter.post("/login", async (req, res) => {
   const { email, password } = req.body ?? {};
   if (typeof email !== "string" || typeof password !== "string") {
@@ -51,7 +50,6 @@ authRouter.post("/login", async (req, res) => {
   res.json({ user: { id: user.id, email: user.email, roles } });
 });
 
-// POST /auth/refresh
 authRouter.post("/refresh", async (req, res) => {
   const payload = readRefresh(req.cookies?.refresh_token);
   const row = payload ? await store.findRefreshToken(payload.jti) : null;
@@ -73,7 +71,6 @@ authRouter.post("/refresh", async (req, res) => {
   res.json({ ok: true });
 });
 
-// POST /auth/logout
 authRouter.post("/logout", async (req, res) => {
   const payload = readRefresh(req.cookies?.refresh_token);
   if (payload) await store.revokeRefreshToken(payload.jti);
@@ -82,7 +79,6 @@ authRouter.post("/logout", async (req, res) => {
   res.status(204).end();
 });
 
-// GET /auth/me
 authRouter.get("/me", requireAuth, (req, res) => {
   res.json({ user: req.user });
 });

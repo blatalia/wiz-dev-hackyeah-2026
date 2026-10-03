@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 
-// The view and its filters live in the URL hash (#/events?outcome=BLOCKED), so the
-// back button, reload and shared links all restore the same screen.
 export const VIEW_IDS = ["overview", "events", "config"] as const;
 export type View = (typeof VIEW_IDS)[number];
 export type Params = Record<string, string | undefined>;
