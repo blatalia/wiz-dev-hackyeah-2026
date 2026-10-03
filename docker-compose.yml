@@ -14,5 +14,20 @@ services:
       interval: 5s
       retries: 5
 
+  api:
+    build: ./dashboard-api
+    container_name: dashboard-api
+    restart: unless-stopped
+    env_file: ./dashboard-api/.env
+    environment:
+      PORT: 3000
+      # Inside the compose network the database is reachable as "postgres", not localhost.
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    ports:
+      - "${API_PORT:-3000}:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   pgdata:
