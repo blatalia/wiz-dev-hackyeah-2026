@@ -2,7 +2,7 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, QueryCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
 import {
   decodeCursor, encodeCursor,
-  type EventFilters, type EventStats, type EventStore, type EventSummary,
+  type EventFilters, type EventStats, type EventStore, type EventSummary, type StatsBucket,
 } from "./eventStore";
 
 const PK = "pk";
@@ -91,6 +91,7 @@ export class DynamoEventStore implements EventStore {
     };
     add(["decision", "outcome"], f.outcome);
     add(["caller", "principalId"], f.principalId);
+    add(["decision", "reasonCode"], f.reasonCode);
     add(["classification", "primaryCategory"], f.category);
     add(["securityScan", "highestSeverity"], f.severity);
     const filter = { expression: conditions.join(" AND ") || undefined, names, values };
@@ -153,12 +154,12 @@ export class DynamoEventStore implements EventStore {
     return null;
   }
 
-  async getStats(from: Date, to: Date): Promise<EventStats> {
+  async getStats(from: Date, to: Date, bucket: StatsBucket): Promise<EventStats> {
     const fromIso = from.toISOString();
     const toIso = to.toISOString();
 
     const totals = { total: 0, allowed: 0, flagged: 0, blocked: 0 };
-    const byDay = new Map<string, { day: string; allowed: number; flagged: number; blocked: number }>();
+    const series = new Map<string, { start: string; allowed: number; flagged: number; blocked: number }>();
     const reasons = new Map<string, number>();
     const principals = new Map<string, { principalId: string; total: number; blocked: number }>();
     const latencies: number[] = [];
@@ -171,8 +172,9 @@ export class DynamoEventStore implements EventStore {
         const key = ({ ALLOWED: "allowed", FLAGGED: "flagged", BLOCKED: "blocked" } as const)[s.outcome as string];
 
         totals.total++;
-        const d = byDay.get(day) ?? { day, allowed: 0, flagged: 0, blocked: 0 };
-        byDay.set(day, d);
+        const start = bucket === "hour" ? `${s.timestamp.slice(0, 13)}:00:00Z` : `${day}T00:00:00Z`;
+        const d = series.get(start) ?? { start, allowed: 0, flagged: 0, blocked: 0 };
+        series.set(start, d);
         if (key) { totals[key]++; d[key]++; }
 
         if (s.reasonCode) reasons.set(s.reasonCode, (reasons.get(s.reasonCode) ?? 0) + 1);
@@ -190,13 +192,14 @@ export class DynamoEventStore implements EventStore {
     latencies.sort((a, b) => a - b);
     return {
       range: { from: fromIso, to: toIso },
+      bucket,
       totals: {
         ...totals,
         avgLatencyMs: latencies.length
           ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length) : null,
         p95LatencyMs: percentile(latencies, 0.95),
       },
-      byDay: [...byDay.values()].sort((a, b) => a.day.localeCompare(b.day)),
+      series: [...series.values()].sort((a, b) => a.start.localeCompare(b.start)),
       topReasons: [...reasons].map(([reasonCode, count]) => ({ reasonCode, count }))
         .sort((a, b) => b.count - a.count).slice(0, 5),
       topPrincipals: [...principals.values()]

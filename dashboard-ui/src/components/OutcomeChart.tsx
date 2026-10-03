@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { BarChart3, Table2 } from "lucide-react";
-import type { DayCounts } from "../api";
+import type { BucketCounts, StatsBucket } from "../api";
 import { OUTCOMES } from "./OutcomeBadge";
 import { stagger } from "./ui";
 
@@ -9,12 +9,22 @@ const M = { top: 12, right: 8, bottom: 28, left: 44 };
 const MAX_BAR = 24;
 const GAP = 2; // surface gap between stacked segments
 const RADIUS = 4;
-const TOOLTIP_W = 176;
+const TOOLTIP_W = 184;
 
-function formatDay(day: string) {
-  return new Date(day + "T00:00:00Z").toLocaleDateString("en-US", {
-    month: "short", day: "numeric", timeZone: "UTC",
-  });
+// Days are UTC buckets; hours are shown in the viewer's local time, like the events table.
+function axisLabel(start: string, unit: StatsBucket) {
+  const d = new Date(start);
+  return unit === "hour"
+    ? d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
+    : d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+}
+
+export function bucketLabel(start: string, unit: StatsBucket) {
+  if (unit === "day") return axisLabel(start, unit);
+  const d = new Date(start);
+  const end = new Date(d.getTime() + 60 * 60 * 1000);
+  const time = (x: Date) => x.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  return `${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${time(d)}–${time(end)}`;
 }
 
 // Round axis steps: 1, 2, 5, 10, 20, 50, ...
@@ -44,32 +54,40 @@ function topRounded(x: number, y: number, w: number, h: number) {
   return `M${x},${y + h} V${y + r} Q${x},${y} ${x + r},${y} H${x + w - r} Q${x + w},${y} ${x + w},${y + r} V${y + h} Z`;
 }
 
-export function OutcomeChart({ days }: { days: DayCounts[] }) {
+const total = (b: BucketCounts) => b.allowed + b.flagged + b.blocked;
+
+export function OutcomeChart({ buckets, unit, onSelect }: {
+  buckets: BucketCounts[];
+  unit: StatsBucket;
+  onSelect: (bucket: BucketCounts) => void;
+}) {
   const [ref, width] = useWidth();
   const [active, setActive] = useState<number | null>(null);
   const [asTable, setAsTable] = useState(false);
 
   const plotW = Math.max(width - M.left - M.right, 0);
   const plotH = HEIGHT - M.top - M.bottom;
-  const maxTotal = Math.max(...days.map((d) => d.allowed + d.flagged + d.blocked), 0);
+  const maxTotal = Math.max(...buckets.map(total), 0);
   const step = niceStep(maxTotal, 4);
   const yMax = Math.max(Math.ceil(maxTotal / step) * step, step);
   const ticks = Array.from({ length: yMax / step + 1 }, (_, i) => i * step);
   const y = (v: number) => M.top + plotH - (v / yMax) * plotH;
 
-  const band = days.length ? plotW / days.length : 0;
+  const band = buckets.length ? plotW / buckets.length : 0;
   const barW = Math.min(MAX_BAR, band * 0.6);
-  const labelEvery = Math.max(1, Math.ceil(days.length / Math.max(Math.floor(plotW / 64), 1)));
+  const labelEvery = Math.max(1, Math.ceil(buckets.length / Math.max(Math.floor(plotW / 64), 1)));
 
-  const activeDay = active !== null ? days[active] : null;
+  const activeBucket = active !== null ? buckets[active] : null;
   const activeX = active !== null ? M.left + band * (active + 0.5) : 0;
 
   return (
     <section className="card">
       <div className="card-head">
         <div>
-          <h2>Requests per day</h2>
-          <p className="card-sub">Stacked by gateway decision, days in UTC</p>
+          <h2>{unit === "hour" ? "Requests per hour" : "Requests per day"}</h2>
+          <p className="card-sub">
+            Stacked by gateway decision{unit === "day" ? ", days in UTC" : ""}. Select a column to see its events.
+          </p>
         </div>
         <button className="btn small" onClick={() => setAsTable(!asTable)}>
           {asTable ? <BarChart3 size={15} /> : <Table2 size={15} />}
@@ -84,19 +102,20 @@ export function OutcomeChart({ days }: { days: DayCounts[] }) {
       </ul>
 
       {asTable ? (
-        <div className="table-wrap">
+        <div className="table-wrap" style={{ maxHeight: HEIGHT, overflowY: "auto" }}>
           <table>
             <thead>
-              <tr><th>Day</th><th className="num">Allowed</th><th className="num">Flagged</th><th className="num">Blocked</th><th className="num">Total</th></tr>
+              <tr><th>{unit === "hour" ? "Hour" : "Day"}</th><th className="num">Allowed</th><th className="num">Flagged</th><th className="num">Blocked</th><th className="num">Total</th></tr>
             </thead>
             <tbody>
-              {days.map((d) => (
-                <tr key={d.day}>
-                  <td>{formatDay(d.day)}</td>
-                  <td className="num">{d.allowed.toLocaleString("en-US")}</td>
-                  <td className="num">{d.flagged.toLocaleString("en-US")}</td>
-                  <td className="num">{d.blocked.toLocaleString("en-US")}</td>
-                  <td className="num">{(d.allowed + d.flagged + d.blocked).toLocaleString("en-US")}</td>
+              {buckets.map((b) => (
+                <tr key={b.start} className="row" tabIndex={0} onClick={() => onSelect(b)}
+                  onKeyDown={(e) => { if (e.key === "Enter") onSelect(b); }}>
+                  <td>{bucketLabel(b.start, unit)}</td>
+                  <td className="num">{b.allowed.toLocaleString("en-US")}</td>
+                  <td className="num">{b.flagged.toLocaleString("en-US")}</td>
+                  <td className="num">{b.blocked.toLocaleString("en-US")}</td>
+                  <td className="num">{total(b).toLocaleString("en-US")}</td>
                 </tr>
               ))}
             </tbody>
@@ -105,7 +124,8 @@ export function OutcomeChart({ days }: { days: DayCounts[] }) {
       ) : (
         <div className="chart" ref={ref} onPointerLeave={() => setActive(null)}>
           {width > 0 && (
-            <svg width={width} height={HEIGHT} role="img" aria-label="Stacked columns: requests per day by outcome">
+            <svg width={width} height={HEIGHT} role="img"
+              aria-label={`Stacked columns: requests per ${unit} by outcome`}>
               {ticks.map((t) => (
                 <g key={t}>
                   <line className={t === 0 ? "axis-line" : "grid-line"} x1={M.left} x2={M.left + plotW} y1={y(t)} y2={y(t)} />
@@ -115,16 +135,16 @@ export function OutcomeChart({ days }: { days: DayCounts[] }) {
                 </g>
               ))}
 
-              {days.map((d, i) => {
+              {buckets.map((b, i) => {
                 const x = M.left + band * i + (band - barW) / 2;
-                const segments = OUTCOMES.map((o) => ({ key: o.key, value: d[o.key] })).filter((s) => s.value > 0);
+                const segments = OUTCOMES.map((o) => ({ key: o.key, value: b[o.key] })).filter((s) => s.value > 0);
                 let below = 0;
                 return (
-                  <g key={d.day} className={active !== null && active !== i ? "dim" : undefined}>
+                  <g key={b.start} className={active !== null && active !== i ? "dim" : undefined}>
                     <rect className={active === i ? "band on" : "band"} rx={8}
-                      x={M.left + band * i + 2} y={M.top} width={Math.max(band - 4, 0)} height={plotH} />
+                      x={M.left + band * i + 1} y={M.top} width={Math.max(band - 2, 0)} height={plotH} />
                     {/* columns grow up from the baseline, one after another */}
-                    <g className="col" style={{ ...stagger(i), transformOrigin: `0px ${y(0)}px` }}>
+                    <g className="col" style={{ ...stagger(Math.min(i, 20)), transformOrigin: `0px ${y(0)}px` }}>
                       {segments.map((s, si) => {
                         const bottom = y(below);
                         below += s.value;
@@ -138,26 +158,28 @@ export function OutcomeChart({ days }: { days: DayCounts[] }) {
                       })}
                     </g>
                     {i % labelEvery === 0 && (
-                      <text className="tick" x={x + barW / 2} y={HEIGHT - 8} textAnchor="middle">{formatDay(d.day)}</text>
+                      <text className="tick" x={x + barW / 2} y={HEIGHT - 8} textAnchor="middle">{axisLabel(b.start, unit)}</text>
                     )}
                     {/* hit target is the whole band, not just the painted column */}
                     <rect
                       className="hit" x={M.left + band * i} y={M.top} width={band} height={plotH}
-                      tabIndex={0}
-                      aria-label={`${formatDay(d.day)}: ${d.allowed} allowed, ${d.flagged} flagged, ${d.blocked} blocked`}
+                      tabIndex={0} role="link"
+                      aria-label={`${bucketLabel(b.start, unit)}: ${b.allowed} allowed, ${b.flagged} flagged, ${b.blocked} blocked. Show events.`}
                       onPointerMove={() => setActive(i)}
                       onFocus={() => setActive(i)}
                       onBlur={() => setActive(null)}
+                      onClick={() => onSelect(b)}
+                      onKeyDown={(e) => { if (e.key === "Enter") onSelect(b); }}
                     />
                     <rect className="focus-ring" rx={8}
-                      x={M.left + band * i + 2} y={M.top} width={Math.max(band - 4, 0)} height={plotH} />
+                      x={M.left + band * i + 1} y={M.top} width={Math.max(band - 2, 0)} height={plotH} />
                   </g>
                 );
               })}
             </svg>
           )}
 
-          {activeDay && (
+          {activeBucket && (
             <div
               className="tooltip"
               style={{
@@ -169,17 +191,17 @@ export function OutcomeChart({ days }: { days: DayCounts[] }) {
                 top: M.top + 4,
               }}
             >
-              <div className="tooltip-title">{formatDay(activeDay.day)}</div>
+              <div className="tooltip-title">{bucketLabel(activeBucket.start, unit)}</div>
               {[...OUTCOMES].reverse().map((o) => (
                 <div className={`tooltip-row status-${o.key}`} key={o.key}>
                   <span className="key" />
-                  <strong>{activeDay[o.key].toLocaleString("en-US")}</strong>
+                  <strong>{activeBucket[o.key].toLocaleString("en-US")}</strong>
                   <span className="muted">{o.label}</span>
                 </div>
               ))}
               <div className="tooltip-row total">
                 <span className="key" style={{ background: "transparent" }} />
-                <strong>{(activeDay.allowed + activeDay.flagged + activeDay.blocked).toLocaleString("en-US")}</strong>
+                <strong>{total(activeBucket).toLocaleString("en-US")}</strong>
                 <span className="muted">Total</span>
               </div>
             </div>

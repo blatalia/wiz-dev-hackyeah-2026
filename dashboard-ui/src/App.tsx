@@ -6,8 +6,10 @@ import { Overview } from "./components/Overview";
 import { Events } from "./components/Events";
 import { Config } from "./components/Config";
 import { Segmented } from "./components/ui";
+import { href, useRoute, type Params } from "./route";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const LIVE_INTERVAL_MS = 30_000;
 
 const RANGES = [
   { value: "24h", label: "24 hours", days: 1 },
@@ -22,26 +24,28 @@ const VIEWS = [
 ] as const;
 
 type RangeId = (typeof RANGES)[number]["value"];
-type View = (typeof VIEWS)[number]["id"];
 type Theme = "dark" | "light";
 
-export type TimeRange = { from: string; to: string };
+// quiet = this range came from a background live tick, so views update in place
+export type TimeRange = { id: RangeId; label: string; from: string; to: string; quiet: boolean };
 
-function storedTheme(): Theme {
-  try {
-    return localStorage.getItem("theme") === "light" ? "light" : "dark";
-  } catch {
-    return "dark";
-  }
+function stored(key: string) {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+function store(key: string, value: string) {
+  try { localStorage.setItem(key, value); } catch { /* storage unavailable: keep the choice for this visit */ }
 }
 
 export function App() {
   // undefined = still checking the session, null = not logged in
   const [user, setUser] = useState<User | null | undefined>(undefined);
-  const [view, setView] = useState<View>("overview");
-  const [rangeId, setRangeId] = useState<RangeId>("7d");
-  const [refreshedAt, setRefreshedAt] = useState(() => Date.now());
-  const [theme, setTheme] = useState<Theme>(storedTheme);
+  const [route, go] = useRoute();
+  const [clock, setClock] = useState(() => ({ at: Date.now(), quiet: false, manual: 0 }));
+  const [live, setLive] = useState(() => stored("live") !== "off");
+  const [theme, setTheme] = useState<Theme>(() => (stored("ui-theme") === "dark" ? "dark" : "light"));
+
+  const view = route.view;
+  const rangeDef = RANGES.find((r) => r.value === route.params.range) ?? RANGES[1];
 
   useEffect(() => {
     setSessionExpiredHandler(() => setUser(null));
@@ -50,21 +54,34 @@ export function App() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    try { localStorage.setItem("theme", theme); } catch { /* storage unavailable: keep the choice for this visit */ }
+    store("ui-theme", theme);
   }, [theme]);
 
-  const range = useMemo<TimeRange>(() => {
-    const days = RANGES.find((r) => r.value === rangeId)!.days;
-    return {
-      from: new Date(refreshedAt - days * DAY_MS).toISOString(),
-      to: new Date(refreshedAt).toISOString(),
-    };
-  }, [rangeId, refreshedAt]);
+  useEffect(() => {
+    store("live", live ? "on" : "off");
+    if (!live || !user) return;
+    const timer = setInterval(() => {
+      // a hidden tab has nobody watching, so skip the request
+      if (!document.hidden) setClock((c) => ({ at: Date.now(), quiet: true, manual: c.manual }));
+    }, LIVE_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [live, user]);
+
+  const range = useMemo<TimeRange>(() => ({
+    id: rangeDef.value,
+    label: rangeDef.label,
+    from: new Date(clock.at - rangeDef.days * DAY_MS).toISOString(),
+    to: new Date(clock.at).toISOString(),
+    quiet: clock.quiet,
+  }), [rangeDef, clock]);
 
   if (user === undefined) return <div className="splash"><RotateCw className="spinner" size={20} /></div>;
-  if (user === null) return <Login onLogin={(u) => { setRefreshedAt(Date.now()); setUser(u); }} />;
+  if (user === null) return <Login onLogin={(u) => { setClock({ at: Date.now(), quiet: false, manual: 0 }); setUser(u); }} />;
 
   const current = VIEWS.find((v) => v.id === view)!;
+  // the period travels with every link; the default one is left out of the URL
+  const rangeParam = rangeDef.value === "7d" ? undefined : rangeDef.value;
+  const refresh = () => setClock((c) => ({ at: Date.now(), quiet: false, manual: c.manual + 1 }));
 
   return (
     <div className="shell">
@@ -79,11 +96,11 @@ export function App() {
 
         <nav className="nav" aria-label="Views">
           {VIEWS.map(({ id, label, Icon }) => (
-            <button key={id} className={view === id ? "nav-item active" : "nav-item"}
-              aria-current={view === id ? "page" : undefined} onClick={() => setView(id)}>
+            <a key={id} className={view === id ? "nav-item active" : "nav-item"}
+              aria-current={view === id ? "page" : undefined} href={href(id, { range: rangeParam })}>
               <Icon size={18} />
               {label}
-            </button>
+            </a>
           ))}
         </nav>
 
@@ -112,13 +129,23 @@ export function App() {
             {/* the period only scopes event data, so it is hidden on the config view */}
             {view !== "config" && (
               <>
+                <button className={live ? "btn live on" : "btn live"} aria-pressed={live}
+                  title={live ? "Refreshing every 30 seconds. Click to pause." : "Click to refresh every 30 seconds."}
+                  onClick={() => setLive(!live)}>
+                  <span className="live-dot" aria-hidden="true" />
+                  {live ? "Live" : "Paused"}
+                </button>
                 <span className="updated">
-                  Updated {new Date(refreshedAt).toLocaleTimeString("en-GB")}
+                  Updated {new Date(clock.at).toLocaleTimeString("en-GB")}
                 </span>
-                <Segmented label="Period" options={RANGES} value={rangeId} onChange={setRangeId} />
-                <button className="btn icon" aria-label="Refresh data" title="Refresh data"
-                  onClick={() => setRefreshedAt(Date.now())}>
-                  <RotateCw key={refreshedAt} className="spin-once" size={16} />
+                <Segmented label="Period" options={RANGES} value={rangeDef.value}
+                  onChange={(id) => {
+                    refresh();
+                    go(view, { ...route.params, range: id === "7d" ? undefined : id });
+                  }} />
+                <button className="btn icon" aria-label="Refresh data" title="Refresh data" onClick={refresh}>
+                  {/* re-keyed on manual refresh only, so live ticks do not spin it */}
+                  <RotateCw key={clock.manual} className="spin-once" size={16} />
                 </button>
               </>
             )}
@@ -131,8 +158,11 @@ export function App() {
         </header>
 
         <main key={view}>
-          {view === "overview" && <Overview range={range} />}
-          {view === "events" && <Events range={range} />}
+          {view === "overview" && <Overview range={range} rangeParam={rangeParam} />}
+          {view === "events" && (
+            <Events range={range} params={route.params}
+              setParams={(patch: Params) => go("events", { ...route.params, ...patch })} />
+          )}
           {view === "config" && <Config />}
         </main>
       </div>

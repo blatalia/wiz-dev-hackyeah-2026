@@ -1,11 +1,11 @@
--- 500 fake gateway events over the last 7 days:
+-- 2100 fake gateway events over the last 30 days:
 -- roughly 70% ALLOWED, 15% FLAGGED, 15% BLOCKED.
 -- FLAGGED and the threat categories are assumptions until the gateway team
 -- confirms the real outcome / reasonCode values.
 WITH base AS (
   SELECT
     i,
-    date_trunc('milliseconds', now() - random() * interval '7 days') AS t,
+    date_trunc('milliseconds', now() - random() * interval '30 days') AS t,
     'req_' || upper(substr(md5(random()::text || i), 1, 14))  AS request_id,
     'user_' || (12340 + floor(random() * 6)::int)             AS principal_id,
     random()                                                  AS r_outcome,
@@ -14,7 +14,7 @@ WITH base AS (
     (20 + floor(random() * 60))::int                          AS scan_ms,
     (400 + floor(random() * 2500))::int                       AS llm_ms,
     (200 + floor(random() * 3000))::int                       AS input_chars
-  FROM generate_series(1, 500) AS i
+  FROM generate_series(1, 2100) AS i
 ),
 shaped AS (
   SELECT *,
