@@ -60,6 +60,52 @@ Point Streamlit's `GATEWAY_URL` at `http://localhost:8000` locally or
 Permission checks, output checks and end-to-end processing remain stubs.
 Tool execution currently has no permission enforcement.
 
+## Docker
+
+Build from the repository root (the gateway also imports `llm` and `mcp`):
+
+```bash
+docker build -f gateway/Dockerfile -t baltic-gateway .
+docker run --rm --env-file gateway/.env -p 8000:8000 baltic-gateway
+```
+
+The image listens on `0.0.0.0:8000`, runs as a non-root user and checks `/health`.
+`gateway/Dockerfile.dockerignore` limits the build context to gateway code, LLM code,
+MCP tools and demo case files. Private environment files stay outside the image.
+Requirements are installed before copying source code, so source edits reuse the
+dependency layer. A BuildKit pip cache also reuses downloads when requirements change.
+
+The local-only `compose.local.yaml` starts the gateway and Streamlit together.
+It is ignored by Git and is not included in a clone. To test the local setup,
+stop any manually running servers on ports 8000 and 8501 first, then run from the
+repository root:
+
+```bash
+docker compose --env-file /dev/null -f compose.local.yaml up --build -d --wait
+docker compose --env-file /dev/null -f compose.local.yaml ps
+curl --fail http://localhost:8000/health
+curl --fail http://localhost:8501/_stcore/health
+curl --fail -X POST http://localhost:8000/chat \
+  -H 'Content-Type: application/json' -d '{"prompt":"hi","history":[]}'
+```
+
+Open `http://localhost:8501` and try a prompt that retrieves data, then a follow-up.
+Gateway credentials come from the existing `gateway/.env` at container creation;
+Compose's `--env-file /dev/null` prevents unrelated root `.env` interpolation.
+The health checks verify server readiness; the chat request checks the live LLM.
+
+To rebuild after source edits, repeat the `up --build -d --wait` command.
+To see logs or stop the local containers:
+
+```bash
+docker compose --env-file /dev/null -f compose.local.yaml logs -f gateway agent
+docker compose --env-file /dev/null -f compose.local.yaml down
+```
+
+If the host ports are occupied, prefix the startup command with
+`GATEWAY_PORT=8001 AGENT_PORT=8502` and use those ports for host checks.
+Containers still communicate at `http://gateway:8000` on Compose's shared network.
+
 ## Tests
 
 ```bash

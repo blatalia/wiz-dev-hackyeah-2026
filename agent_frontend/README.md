@@ -25,6 +25,10 @@ never loads `.env` files and needs no model API key.
 
 ## Container deployment
 
+For the local setup with both services, see the
+[gateway Docker instructions](../gateway/README.md#docker). The local
+`compose.local.yaml` is deliberately ignored by Git.
+
 Build from the repository root:
 
 ```bash
