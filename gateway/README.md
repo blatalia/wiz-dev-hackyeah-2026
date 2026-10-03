@@ -63,11 +63,18 @@ Tool execution currently has no permission enforcement.
 ## Tool-call limit
 
 `NUM_TOOL_CALLS_HARDCODE = 2` in `gateway/main.py` is the fallback per conversation.
-The existing DynamoDB config poller can override it with a numeric `num_tool_calls`
-attribute (a non-negative integer; 0 disables new retrieval). It mirrors the value
-to `GATEWAY_CHECK_NUM_TOOL_CALLS`, which the gateway reads on each request.
+The DynamoDB config poller can override it with a numeric `num_tool_calls` entry
+inside the `mcp_config` map (a non-negative integer; 0 disables new retrieval). It
+mirrors the whole `mcp_config` map to the `MCP_CONFIG` environment variable (e.g.
+`"get_kyc_status=true,...,num_tool_calls=2"`), and `get_num_tool_calls()` reads the
+`num_tool_calls` entry from it on each request.
 Missing or invalid values use the fallback. Initial polling failures allow startup
 with the fallback; later polling failures retain the last successfully loaded value.
+
+The poller also mirrors the `pii_to_anonymize` map to a `PII_TO_ANONYMIZE`
+environment variable: a comma-separated list of only the categories currently
+`true` (e.g. `"ACCOUNT_NUMBER,EMAIL,IBAN"`). Use `is_pii_type_enabled(name)` or
+`get_pii_to_anonymize()` from `gateway/guardrails/config_poller.py` to read it.
 
 The gateway counts the tool results in the supplied conversation history. Once the
 allowance is exhausted, no tool definitions are sent to the LLM, and it can still

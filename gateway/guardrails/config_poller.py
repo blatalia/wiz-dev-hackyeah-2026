@@ -1,6 +1,17 @@
-"""Background poller that mirrors the ai-gateway-config DynamoDB table into
+"""Background poller that mirrors the ai-gateway-config DynamoDB item into two
 environment variables, so guardrail functions always see live config without
-needing a restart or an explicit DynamoDB call on every request.
+needing a restart or an explicit DynamoDB call per request.
+
+The DynamoDB item (configId="default") has two nested maps:
+    {
+      "configId": "default",
+      "pii_to_anonymize": {"ACCOUNT_NUMBER": true, "EMAIL": false, ...},
+      "mcp_config": {"get_customer_contract_c014": true, ..., "num_tool_calls": 2},
+    }
+
+Those are mirrored into two comma-separated environment variables:
+    PII_TO_ANONYMIZE="ACCOUNT_NUMBER,ADDRESS,..."     # only keys that are true
+    MCP_CONFIG="get_customer_contract_c014=true,...,num_tool_calls=2"  # every key
 
 Usage:
     from gateway.guardrails.config_poller import ConfigPoller
@@ -8,7 +19,8 @@ Usage:
     poller = ConfigPoller()
     poller.start()  # does a synchronous initial load, then polls in background
     ...
-    os.environ["GATEWAY_CHECK_EMAIL"]  # "true" / "false", kept up to date
+    os.environ["PII_TO_ANONYMIZE"]
+    os.environ["MCP_CONFIG"]
     ...
     poller.stop()
 """
@@ -24,35 +36,56 @@ import boto3
 
 logger = logging.getLogger(__name__)
 
-# Prefix applied to every config flag when mirrored into the environment,
-# e.g. config flag "email" -> env var "GATEWAY_CHECK_EMAIL".
-ENV_VAR_PREFIX: Final[str] = "GATEWAY_CHECK_"
+PII_ENV_VAR: Final[str] = "PII_TO_ANONYMIZE"
+MCP_ENV_VAR: Final[str] = "MCP_CONFIG"
 
 DEFAULT_TABLE_NAME: Final[str] = "ai-gateway-config"
 DEFAULT_CONFIG_ID: Final[str] = "default"
 DEFAULT_REGION: Final[str] = "eu-north-1"
 DEFAULT_POLL_INTERVAL_SECONDS: Final[float] = 60.0
+DEFAULT_NUM_TOOL_CALLS: Final[int] = 2
 
 
-def _flag_to_env_var(flag_name: str) -> str:
-    return f"{ENV_VAR_PREFIX}{flag_name.upper()}"
+def get_pii_to_anonymize() -> list[str]:
+    """Return the PII categories currently enabled for anonymization."""
+    raw = os.environ.get(PII_ENV_VAR, "")
+    return [item for item in raw.split(",") if item]
 
 
-def get_check_enabled(flag_name: str, default: bool = True) -> bool:
-    """Read a single guardrail flag's current value from the environment.
+def is_pii_type_enabled(pii_type: str, default: bool = True) -> bool:
+    """Check whether a single PII category is currently enabled for anonymization.
 
     Call this at the point of use (not once at import time) so that
     functions always observe the latest value the poller has written.
     """
-    raw = os.environ.get(_flag_to_env_var(flag_name))
+    raw = os.environ.get(PII_ENV_VAR)
+    if raw is None:
+        return default
+    return pii_type in raw.split(",")
+
+
+def get_mcp_config() -> dict[str, str]:
+    """Return every MCP_CONFIG entry as raw strings, keyed by name."""
+    raw = os.environ.get(MCP_ENV_VAR, "")
+    entries: dict[str, str] = {}
+    for pair in raw.split(","):
+        key, sep, value = pair.partition("=")
+        if sep:
+            entries[key] = value
+    return entries
+
+
+def is_tool_enabled(tool_name: str, default: bool = True) -> bool:
+    """Check whether a single MCP tool is currently enabled."""
+    raw = get_mcp_config().get(tool_name)
     if raw is None:
         return default
     return raw == "true"
 
 
-def get_num_tool_calls(default: int = 2) -> int:
-    """Read the latest numeric limit, falling back when absent or invalid."""
-    raw = os.environ.get(_flag_to_env_var("num_tool_calls"), "")
+def get_num_tool_calls(default: int = DEFAULT_NUM_TOOL_CALLS) -> int:
+    """Read the latest tool-call limit, falling back when absent or invalid."""
+    raw = get_mcp_config().get("num_tool_calls", "")
     return int(raw) if raw.isdecimal() else default
 
 
@@ -82,7 +115,7 @@ class ConfigPoller:
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
-        self._last_known_good: dict[str, bool | int] = {}
+        self._last_known_good: dict[str, str] = {}
 
     def start(self) -> None:
         """Load config synchronously once, then start background polling."""
@@ -112,6 +145,15 @@ class ConfigPoller:
                 break
             self._poll_once(raise_on_error=False)
 
+    @staticmethod
+    def _attribute_value_to_str(attribute_value: dict[str, object]) -> str | None:
+        """Render a single DynamoDB attribute value as a MCP_CONFIG-style string."""
+        if "BOOL" in attribute_value:
+            return "true" if attribute_value["BOOL"] else "false"
+        if "N" in attribute_value:
+            return str(attribute_value["N"])
+        return None
+
     def _poll_once(self, raise_on_error: bool) -> None:
         try:
             response = self._client.get_item(
@@ -136,16 +178,22 @@ class ConfigPoller:
             )
             return
 
-        new_values: dict[str, bool | int] = {
-            key: av["BOOL"]
-            for key, av in item.items()
-            if key != "configId" and "BOOL" in av
+        pii_map = item.get("pii_to_anonymize", {}).get("M", {})
+        mcp_map = item.get("mcp_config", {}).get("M", {})
+
+        pii_enabled = sorted(
+            key for key, av in pii_map.items() if av.get("BOOL") is True
+        )
+        mcp_entries = []
+        for key in sorted(mcp_map):
+            rendered = self._attribute_value_to_str(mcp_map[key])
+            if rendered is not None:
+                mcp_entries.append(f"{key}={rendered}")
+
+        new_values = {
+            PII_ENV_VAR: ",".join(pii_enabled),
+            MCP_ENV_VAR: ",".join(mcp_entries),
         }
-        limit = item.get("num_tool_calls", {}).get("N", "")
-        # The limit is a number, separate from the existing boolean flags.
-        new_values.pop("num_tool_calls", None)
-        if limit.isdecimal():
-            new_values["num_tool_calls"] = int(limit)
 
         with self._lock:
             changed = {
@@ -155,8 +203,6 @@ class ConfigPoller:
             }
             if changed:
                 for key, value in changed.items():
-                    os.environ[_flag_to_env_var(key)] = (
-                        ("true" if value else "false") if isinstance(value, bool) else str(value)
-                    )
-                    logger.info("Config flag changed: %s -> %s", key, value)
+                    os.environ[key] = value
+                    logger.info("Config changed: %s -> %s", key, value)
                 self._last_known_good = new_values

@@ -19,8 +19,8 @@ NUM_TOOL_CALLS_HARDCODE = 2
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
-    # Populates GATEWAY_CHECK_* env vars synchronously before the app starts
-    # serving requests, then keeps them in sync via a background poll.
+    # Populates PII_TO_ANONYMIZE/MCP_CONFIG env vars synchronously before the
+    # app starts serving requests, then keeps them in sync via a background poll.
     config_poller = None
     try:
         config_poller = ConfigPoller()
