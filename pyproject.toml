@@ -1,0 +1,26 @@
+[project]
+name = "wiz-dev-hackyeah-2026"
+version = "0.1.0"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "transformers>=4.44,<5.0",
+    "tokenizers>=0.19,<1.0",
+    "huggingface_hub>=0.24,<1.0",
+    "torch>=2.2,<3.0",
+    "numpy>=1.26,<2.0",
+    "dotenv",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
