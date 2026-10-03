@@ -32,7 +32,7 @@ class DetectSQL:
         return any(pattern.search(text) for pattern in self.patterns)
 
 
-if __name__ == "__main__":
-    detector = DetectSQL()
-    sample = "SELECT * FROM users WHERE id=1 OR 1=1 --"
-    print(detector.is_sql(sample))
+# if __name__ == "__main__":
+#     detector = DetectSQL()
+#     sample = "SELECT * FROM users WHERE id=1 OR 1=1 --"
+#     print(detector.is_sql(sample))
