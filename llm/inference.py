@@ -42,13 +42,16 @@ def judge_llm_response(content_to_check, model="gpt-4o"):
         {"role": "user", "content": f"Content to evaluate: {content_to_check}"}
     ]
     
-    response = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        response_format={"type": "json_object"} 
-    )
-    
-    return json.loads(response.choices[0].message.content)
+    try: 
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            response_format={"type": "json_object"} 
+        )
+        return json.loads(response.choices[0].message.content)
+
+    except Exception as e:
+        return {"is_safe": False, "reason": str(e)}    
 
 
 def judge_user_input(user_input, model="gpt-4o"):
@@ -66,13 +69,16 @@ def judge_user_input(user_input, model="gpt-4o"):
         {"role": "user", "content": f"User input to analyze: {user_input}"}
     ]
     
-    response = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        response_format={"type": "json_object"}
-    )
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            response_format={"type": "json_object"}
+        )
+        return json.loads(response.choices[0].message.content)
     
-    return json.loads(response.choices[0].message.content)
+    except Exception as e:
+        return {"is_safe": False, "reason": str(e)}
 
 
 def judge_tool_calls(tool_calls, model="gpt-4o"):
