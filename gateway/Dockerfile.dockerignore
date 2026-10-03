@@ -1,0 +1,19 @@
+# This Dockerfile uses the repository root as its build context.
+**
+!gateway/
+!gateway/**
+!llm/
+!llm/**
+!mcp/
+!mcp/**
+!case_files/
+!case_files/**
+
+# Runtime configuration is supplied by Compose, never baked into the image.
+**/.env
+**/.env.*
+**/.venv
+**/__pycache__
+**/*.pyc
+gateway/tests
+llm/judge_smoke_test.py

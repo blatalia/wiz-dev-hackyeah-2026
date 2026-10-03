@@ -10,6 +10,7 @@ dependencies = [
     "numpy>=1.26,<2.0",
     "dotenv",
     "pyyaml>=6.0,<7.0",
+    "boto3>=1.34,<2.0",
 ]
 
 [build-system]

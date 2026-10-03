@@ -29,5 +29,15 @@ services:
       postgres:
         condition: service_healthy
 
+  ui:
+    build: ./dashboard-ui
+    container_name: dashboard-ui
+    restart: unless-stopped
+    # Must stay on the origin the API allows in CORS_ORIGIN (dashboard-api/.env).
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
+
 volumes:
   pgdata:

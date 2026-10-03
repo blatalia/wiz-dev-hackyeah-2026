@@ -2,8 +2,9 @@ import os
 import runpy
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+
+import requests
 
 MAIN = Path(__file__).resolve().parents[1] / "main.py"
 GREETING = {"role": "assistant", "content": "How can I help you?"}
@@ -13,88 +14,89 @@ class StopScript(Exception):
     pass
 
 
-class APIError(Exception):
-    def __init__(self, code):
-        self.code = code
-
-
 class SessionState(dict):
     def __getattr__(self, name):
         return self[name]
 
+    def __setattr__(self, name, value):
+        self[name] = value
+
 
 class ChatbotTests(unittest.TestCase):
-    def run_app(self, env=None, history=None, response="Hello!", error=None):
+    def run_app(self, env=None, history=None, text="Hello!", error=None, conversation=None):
         st = MagicMock()
         st.session_state = SessionState(messages=[GREETING.copy(), *(history or [])])
+        st.session_state["history"] = conversation or []
         st.chat_input.return_value = "Hi"
         st.stop.side_effect = StopScript
-        genai = MagicMock()
-        client = genai.Client.return_value.__enter__.return_value
-        client.models.generate_content.return_value = SimpleNamespace(text=response)
-        client.models.generate_content.side_effect = error
-        types = SimpleNamespace(
-            Content=lambda **kwargs: SimpleNamespace(**kwargs),
-            Part=SimpleNamespace(from_text=lambda **kwargs: SimpleNamespace(**kwargs)),
-        )
-        genai.types = types
-        genai.errors = SimpleNamespace(APIError=APIError)
-        dotenv = MagicMock()
-        modules = {
-            "streamlit": st,
-            "dotenv": dotenv,
-            "google": SimpleNamespace(genai=genai),
-            "google.genai": genai,
+        response = MagicMock(text=text)
+        response.json.return_value = {
+            "text": text,
+            "history": [
+                *(conversation or []),
+                {"prompt": "Hi", "answer": text, "tool_results": []},
+            ],
         }
-        with patch.dict(os.environ, env or {}, clear=True), patch.dict("sys.modules", modules):
+        with (
+            patch.dict(os.environ, env or {}, clear=True),
+            patch.dict("sys.modules", {"streamlit": st}),
+            patch.object(requests, "post", return_value=response, side_effect=error) as post,
+        ):
             try:
                 runpy.run_path(str(MAIN))
             except StopScript:
                 pass
-        return st, genai, client, dotenv
+        return st, post
 
-    def test_missing_key_stops_before_calling_google(self):
-        st, genai, _, dotenv = self.run_app()
-        genai.Client.assert_not_called()
-        self.assertEqual(st.session_state.messages, [GREETING])
-        dotenv.load_dotenv.assert_called_once_with(MAIN.parent / ".env")
-
-    def test_sends_history_with_gemini_roles_and_excludes_ui_greeting(self):
-        history = [
-            {"role": "user", "content": "My name is Alex"},
-            {"role": "assistant", "content": "Hello Alex"},
-        ]
-        st, genai, client, _ = self.run_app({"GEMINI_API_KEY": "test-key"}, history)
-        genai.Client.assert_called_once_with(api_key="test-key", vertexai=False)
-        request = client.models.generate_content.call_args.kwargs
-        self.assertEqual(request["model"], "gemini-2.5-flash")
-        self.assertEqual([part.role for part in request["contents"]], ["user", "model", "user"])
-        self.assertEqual(
-            [part.parts[0].text for part in request["contents"]],
-            ["My name is Alex", "Hello Alex", "Hi"],
+    def test_sends_prompt_to_gateway_and_displays_plain_text(self):
+        st, post = self.run_app()
+        post.assert_called_once_with(
+            "http://localhost:8000/chat",
+            json={"prompt": "Hi", "history": []},
+            timeout=(5, 120),
         )
+        st.spinner.assert_called_once_with("Thinking...")
         self.assertEqual(st.session_state.messages[-1]["content"], "Hello!")
+        st.chat_message.return_value.write.assert_any_call("Hello!")
 
-    def test_environment_can_override_model(self):
-        _, _, client, _ = self.run_app(
-            {"GEMINI_API_KEY": "test-key", "GEMINI_MODEL": "custom-model"}
-        )
-        self.assertEqual(client.models.generate_content.call_args.kwargs["model"], "custom-model")
+    def test_gateway_url_can_be_configured_for_containers(self):
+        _, post = self.run_app(env={"GATEWAY_URL": "http://gateway:8000/"})
+        self.assertEqual(post.call_args.args[0], "http://gateway:8000/chat")
 
-    def test_api_failures_preserve_history_and_do_not_display_key(self):
-        for code in (429, 403, 503):
-            with self.subTest(code=code):
-                st, _, _, _ = self.run_app({"GEMINI_API_KEY": "test-key"}, error=APIError(code))
-                st.error.assert_called_once()
-                self.assertNotIn("test-key", st.error.call_args.args[0])
-                self.assertEqual(st.session_state.messages, [GREETING])
+    def test_network_error_preserves_history(self):
+        st, _ = self.run_app(error=requests.ConnectionError("Unavailable"))
+        st.error.assert_called_once_with("Could not reach the gateway. Please try again.")
+        self.assertEqual(st.session_state.messages, [GREETING])
+
+    def test_rejected_request_displays_gateway_response(self):
+        response = MagicMock(text="Your request was rejected by the input check.")
+        error = requests.HTTPError(response=response)
+        st, _ = self.run_app(error=error)
+        st.error.assert_called_once_with(response.text)
+        self.assertEqual(st.session_state.messages, [GREETING])
 
     def test_empty_response_preserves_history(self):
-        for response in (None, "", "   "):
-            with self.subTest(response=response):
-                st, _, _, _ = self.run_app({"GEMINI_API_KEY": "test-key"}, response=response)
-                st.warning.assert_called_once()
-                self.assertEqual(st.session_state.messages, [GREETING])
+        st, _ = self.run_app(text="   ")
+        st.warning.assert_called_once()
+        self.assertEqual(st.session_state.messages, [GREETING])
+
+    def test_followup_sends_and_retains_previous_tool_results(self):
+        conversation = [
+            {
+                "prompt": "Check KYC",
+                "answer": "KYC is complete.",
+                "tool_results": [{"name": "get_kyc_status", "content": "source data"}],
+            }
+        ]
+        st, post = self.run_app(conversation=conversation)
+        self.assertEqual(post.call_args.kwargs["json"]["history"], conversation)
+        self.assertEqual(st.session_state.history[0], conversation[0])
+        self.assertEqual(len(st.session_state.history), 2)
+
+    def test_failed_turn_does_not_change_retained_history(self):
+        conversation = [{"prompt": "Hello", "answer": "Hello!", "tool_results": []}]
+        st, _ = self.run_app(conversation=conversation, error=requests.ConnectionError())
+        self.assertEqual(st.session_state.history, conversation)
 
 
 if __name__ == "__main__":
