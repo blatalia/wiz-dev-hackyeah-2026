@@ -99,6 +99,20 @@ class GuardrailsTests(unittest.TestCase):
         result, _ = self.send_input("Hello!", [])
         self.assertEqual(result, {"text": "Hello!", "tools": []})
 
+    def test_exhausted_budget_omits_tool_definitions_and_keeps_history(self):
+        history = [{"prompt": "Earlier question", "answer": "Earlier answer", "tool_results": []}]
+        response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="Answer", tool_calls=[]))]
+        )
+        with patch.object(
+            self.guardrails.inference, "chat_completion", return_value=response
+        ) as chat:
+            self.guardrails.send_input_to_llm("Follow up", history=history, allow_tools=False)
+        request = chat.call_args.kwargs
+        self.assertIsNone(request["tools"])
+        self.assertIn("No tool calls remain", request["messages"][0]["content"])
+        self.assertEqual(request["messages"][1]["content"], "Earlier question")
+
     def test_llm_handles_missing_tool_calls(self):
         message = SimpleNamespace(content="Hello!", tool_calls=None)
         response = SimpleNamespace(choices=[SimpleNamespace(message=message)])

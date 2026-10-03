@@ -11,23 +11,40 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
 from gateway.guardrails import guardrails
-from gateway.guardrails.config_poller import ConfigPoller
+from gateway.guardrails.config_poller import ConfigPoller, get_num_tool_calls
+
+NUM_TOOL_CALLS_HARDCODE = 2
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
     # Populates GATEWAY_CHECK_* env vars synchronously before the app starts
     # serving requests, then keeps them in sync via a background poll.
-    config_poller = ConfigPoller()
-    config_poller.start()
+    config_poller = None
+    try:
+        config_poller = ConfigPoller()
+        config_poller.start()
+    except Exception as exc:
+        logger.warning(
+            "Config loading failed (%s); using tool-call fallback of %s.",
+            type(exc).__name__,
+            NUM_TOOL_CALLS_HARDCODE,
+        )
     try:
         yield
     finally:
-        config_poller.stop()
+        if config_poller is not None:
+            config_poller.stop()
 
 
 app = FastAPI(title="Agent gateway", lifespan=lifespan)
+app.state.num_tool_calls = NUM_TOOL_CALLS_HARDCODE
 logger = logging.getLogger("uvicorn.error")
+TOOL_LIMIT_MESSAGE = (
+    "The tool-call limit has been reached. I can use previously retrieved information, "
+    "but can't retrieve more."
+)
 
 
 class ToolResult(BaseModel):
@@ -71,10 +88,25 @@ def chat(request: ChatRequest):
 
         stage = "LLM tool selection"
         history = [turn.model_dump() for turn in request.history]
-        result = json.loads(guardrails.send_input_to_llm(prompt, history=history))
+        used_calls = sum(len(turn.tool_results) for turn in request.history)
+        remaining_calls = max(0, get_num_tool_calls(app.state.num_tool_calls) - used_calls)
+        result = json.loads(
+            guardrails.send_input_to_llm(
+                prompt, history=history, allow_tools=remaining_calls > 0
+            )
+        )
         text = result["text"]
         tool_results = []
-        if result["tools"]:
+        if len(result["tools"]) > remaining_calls:
+            if remaining_calls == 0:
+                text = TOOL_LIMIT_MESSAGE
+            else:
+                text = (
+                    "This request would exceed the tool-call limit. Remaining calls: "
+                    f"{remaining_calls}. No tools were called. I can use previously retrieved "
+                    "information, or you can ask for a smaller retrieval."
+                )
+        elif result["tools"]:
             stage = "tool execution"
             tool_results = [
                 {"name": name, "content": guardrails.call_tool(name)}
@@ -82,6 +114,8 @@ def chat(request: ChatRequest):
             ]
             stage = "LLM summary"
             text = guardrails.send_tool_results_to_llm(prompt, tool_results, history=history)
+        if remaining_calls == len(tool_results) and not text.startswith(TOOL_LIMIT_MESSAGE):
+            text = TOOL_LIMIT_MESSAGE + (f"\n\n{text}" if text else "")
         text = text or "The assistant returned no text."
         turn = ConversationTurn(prompt=prompt, answer=text, tool_results=tool_results)
         return ChatResponse(text=text, history=[*request.history, turn])
