@@ -4,6 +4,7 @@ import importlib.util
 import inspect
 import json
 from pathlib import Path
+from threading import Lock
 from typing import Any, Literal, TypeAlias
 
 from llm import inference
@@ -31,6 +32,20 @@ TOOLS = {
 }
 
 GATEWAY_DECISION: TypeAlias = Literal["ALLOW", "REJECT"]
+
+# Process-wide usage across conversations; resets when the process restarts.
+total_tokens_spent = 0
+_token_usage_lock = Lock()
+
+
+def _record_token_usage(response) -> None:
+    """Accumulate reported input/output tokens when usage is available."""
+    global total_tokens_spent
+    usage = getattr(response, "usage", None)
+    tokens = getattr(usage, "total_tokens", None)
+    if tokens is not None:
+        with _token_usage_lock:
+            total_tokens_spent += tokens
 
 
 def initial_input_check(user_input: str) -> GATEWAY_DECISION:
@@ -107,6 +122,7 @@ def send_input_to_llm(
         ],
         tools=tools if allow_tools else None,
     )
+    _record_token_usage(response)
     message = response.choices[0].message
     return json.dumps(
         {
@@ -167,6 +183,7 @@ def send_tool_results_to_llm(
             },
         ]
     )
+    _record_token_usage(response)
     return response.choices[0].message.content or ""
 
 
