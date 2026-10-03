@@ -11,11 +11,19 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
 from gateway.guardrails import guardrails
+from gateway.guardrails.config_poller import ConfigPoller
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
-    yield
+    # Populates GATEWAY_CHECK_* env vars synchronously before the app starts
+    # serving requests, then keeps them in sync via a background poll.
+    config_poller = ConfigPoller()
+    config_poller.start()
+    try:
+        yield
+    finally:
+        config_poller.stop()
 
 
 app = FastAPI(title="Agent gateway", lifespan=lifespan)
