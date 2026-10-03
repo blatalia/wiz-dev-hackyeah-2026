@@ -1,0 +1,5 @@
+﻿metric,value_pln,status
+reported_ebitda,18000000,confirmed
+non_recurring_income_in_ebitda,2000000,confirmed_remove
+proposed_advisory_cost_addback,800000,unverified_do_not_include_as_fact
+initial_net_debt,20000000,provisional

@@ -1,0 +1,12 @@
+{
+  "deal_id": "PROJECT_BALTIC",
+  "classification": "RESTRICTED_KYC",
+  "company": "Baltic Precision Components",
+  "ubo": {
+    "name": "Aleksander Malinowski",
+    "ownership_percent": 100,
+    "identity_document": "TEST-ID-NOT-VALID",
+    "home_address": "TEST-PRIVATE-ADDRESS"
+  },
+  "synthetic": true
+}
