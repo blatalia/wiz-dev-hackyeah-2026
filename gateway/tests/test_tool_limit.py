@@ -88,17 +88,15 @@ class ToolLimitTests(unittest.TestCase):
         self.assertEqual(response.text, "Summary")
 
     def test_dynamic_limit_overrides_fallback(self):
-        with patch.dict(os.environ, {"GATEWAY_CHECK_NUM_TOOL_CALLS": "1"}):
+        with patch.dict(os.environ, {"MCP_CONFIG": "num_tool_calls=1"}):
             response = self.request(1, [])
         self.assertFalse(self.select.call_args.kwargs["allow_tools"])
         self.assertIn("can't retrieve more", response.text)
 
     def test_missing_or_invalid_dynamic_limit_uses_hardcoded_two(self):
         self.gateway.app.state.num_tool_calls = self.gateway.NUM_TOOL_CALLS_HARDCODE
-        for value in ("", "bad", "-1", "true", "1.5"):
-            with self.subTest(value=value), patch.dict(
-                os.environ, {"GATEWAY_CHECK_NUM_TOOL_CALLS": value}
-            ):
+        for value in ("", "num_tool_calls=bad", "num_tool_calls=-1", "num_tool_calls=true", "num_tool_calls=1.5"):
+            with self.subTest(value=value), patch.dict(os.environ, {"MCP_CONFIG": value}):
                 response = self.request(2, [])
                 self.assertFalse(self.select.call_args.kwargs["allow_tools"])
                 self.assertIn("can't retrieve more", response.text)
@@ -130,13 +128,29 @@ class ConfigPollerTests(unittest.TestCase):
         with patch.object(self.config.boto3, "client", return_value=self.client):
             self.poller = self.config.ConfigPoller()
 
-    def test_numeric_limit_and_existing_boolean_flags_are_loaded(self):
-        self.client.get_item.return_value = {
-            "Item": {"num_tool_calls": {"N": "4"}, "email": {"BOOL": False}}
+    @staticmethod
+    def _item(pii: dict[str, bool], mcp: dict[str, object]) -> dict:
+        def av(value):
+            return {"N": str(value)} if isinstance(value, int) and not isinstance(value, bool) else {"BOOL": value}
+
+        return {
+            "Item": {
+                "pii_to_anonymize": {"M": {k: av(v) for k, v in pii.items()}},
+                "mcp_config": {"M": {k: av(v) for k, v in mcp.items()}},
+            }
         }
+
+    def test_numeric_limit_and_pii_flags_are_loaded(self):
+        self.client.get_item.return_value = self._item(
+            {"EMAIL": False, "ACCOUNT_NUMBER": True},
+            {"num_tool_calls": 4, "get_kyc_status": True},
+        )
         self.poller._poll_once(raise_on_error=False)
         self.assertEqual(self.config.get_num_tool_calls(), 4)
-        self.assertFalse(self.config.get_check_enabled("email"))
+        self.assertFalse(self.config.is_pii_type_enabled("EMAIL"))
+        self.assertTrue(self.config.is_pii_type_enabled("ACCOUNT_NUMBER"))
+        self.assertEqual(self.config.get_pii_to_anonymize(), ["ACCOUNT_NUMBER"])
+        self.assertTrue(self.config.is_tool_enabled("get_kyc_status"))
 
     def test_failed_initial_load_keeps_fallback_and_starts_polling(self):
         self.client.get_item.side_effect = RuntimeError("Unavailable")
@@ -149,7 +163,7 @@ class ConfigPollerTests(unittest.TestCase):
         self.assertEqual(self.config.get_num_tool_calls(), 2)
 
     def test_failed_poll_keeps_last_known_good_limit(self):
-        self.client.get_item.return_value = {"Item": {"num_tool_calls": {"N": "4"}}}
+        self.client.get_item.return_value = self._item({}, {"num_tool_calls": 4})
         self.poller._poll_once(raise_on_error=False)
         self.client.get_item.side_effect = RuntimeError("Unavailable")
         with self.assertLogs(self.config.__name__, level="WARNING"):
@@ -157,9 +171,9 @@ class ConfigPollerTests(unittest.TestCase):
         self.assertEqual(self.config.get_num_tool_calls(), 4)
 
     def test_invalid_dynamic_limit_uses_fallback(self):
-        for attribute in ({"BOOL": True}, {"N": "-1"}, {"N": "1.5"}, {}):
-            with self.subTest(attribute=attribute):
-                self.client.get_item.return_value = {"Item": {"num_tool_calls": attribute}}
+        for mcp in ({"num_tool_calls": True}, {}, {"num_tool_calls": -1}):
+            with self.subTest(mcp=mcp):
+                self.client.get_item.return_value = self._item({}, mcp)
                 self.poller._poll_once(raise_on_error=False)
                 self.assertEqual(self.config.get_num_tool_calls(), 2)
 
