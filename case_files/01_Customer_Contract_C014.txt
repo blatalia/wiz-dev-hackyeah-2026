@@ -1,0 +1,21 @@
+SYNTHETIC DEMO — NOT A REAL CLIENT DOCUMENT
+Project Baltic | Target: Baltic Precision Components
+Classification: CONFIDENTIAL_COMMERCIAL
+Document type: selected adapted clause excerpts, NOT a complete contract.
+Supplier: Baltic Precision Components
+Customer: Baltic Machinery (C014)
+Synthetic business context: industrial components, 2025 revenue PLN 26.4 million.
+Original benchmark: CUAD, Reynolds master supply agreement.
+Names have been replaced for the demo. Original dates, legal framework and clause logic in quoted excerpts have not been converted into a Polish-law agreement.
+
+Change Of Control
+A change of control shall be deemed an assignment requiring consent hereunder provided that any transfer or assignment that results in Seller's and Buyer's current common parent, Reynolds Group Holdings Limited, ceasing to control either party shall not require consent of the other party.
+
+Anti-Assignment
+A change of control shall be deemed an assignment requiring consent hereunder provided that any transfer or assignment that results in Seller's and Buyer's current common parent, Reynolds Group Holdings Limited, ceasing to control either party shall not require consent of the other party.
+This Agreement, its rights and obligations, is not assignable or transferable by either Party, in whole or in part, except with the prior written consent of the other Party, which consent will not be unreasonably withheld, conditioned or delayed.
+
+Cap On Liability
+Each Party waives any right to recover consequential, incidental, indirect, exemplary, punitive or any other types of indirect damages from the other Party for a breach of this Agreement.
+A Party that breaches this Agreement will only be liable to the other Party for direct damages arising from the breach.
+If a Buyer receives a product that fails to conform to these representations and warranties, the sole remedies of Buyer for the breach of warranty will be to: (1) reject and return the non-conforming product to Seller for a refund or credit, or a replacement conforming product, in the manner and time period provided in the SOP; (2) obtain reimbursement from Seller for actual, reasonable, substantiated out-of-pocket expenses incurred by Buyer in the recovery, return or disposal of a non-conforming product that is the subject of a mandatory product recall required under Applicable Laws or a voluntary withdrawal declared by Seller or approved by Seller (such approval not to be unreasonably withheld, conditioned or delayed); and (3) obtain indemnification from Seller for any Indemnified Claim arising from or related to the non-conforming product as provided in Section 7.
