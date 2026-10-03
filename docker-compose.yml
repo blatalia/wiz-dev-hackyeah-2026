@@ -30,7 +30,13 @@ services:
         condition: service_healthy
 
   ui:
-    build: ./dashboard-ui
+    build:
+      context: ./dashboard-ui
+      args:
+        # Baked into the browser bundle at build time, so it must be the
+        # address the user's browser can reach (e.g. the EC2 public IP),
+        # not an in-network service name.
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:3000}
     container_name: dashboard-ui
     restart: unless-stopped
     # Must stay on the origin the API allows in CORS_ORIGIN (dashboard-api/.env).
