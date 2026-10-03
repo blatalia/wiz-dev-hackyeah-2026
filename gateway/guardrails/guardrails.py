@@ -3,6 +3,8 @@
 import importlib.util
 import inspect
 import json
+import time
+from collections import deque
 from pathlib import Path
 from threading import Lock
 from typing import Any, Literal, TypeAlias
@@ -56,11 +58,91 @@ def _record_usage(response) -> None:
         total_cost_spent += cost or 0.0
 
 
+# Process-wide request/response metrics; reset when the process restarts.
+total_user_inputs = 0
+total_allowed_user_inputs = 0
+total_erroneous_user_inputs = 0
+total_llm_outputs = 0
+total_allowed_llm_outputs = 0
+total_erroneous_llm_outputs = 0
+total_llm_latency_seconds = 0.0
+total_llm_calls_timed = 0
+refusal_reasons: deque[dict[str, str]] = deque(maxlen=100)
+_metrics_lock = Lock()
+
+
+def _record_refusal(source: str, reason: Any) -> None:
+    refusal_reasons.append({"source": source, "reason": str(reason or "unspecified")})
+
+
+def _record_user_input(allowed: bool, reason: Any = None) -> None:
+    global total_user_inputs, total_allowed_user_inputs, total_erroneous_user_inputs
+    with _metrics_lock:
+        total_user_inputs += 1
+        if allowed:
+            total_allowed_user_inputs += 1
+        else:
+            total_erroneous_user_inputs += 1
+            _record_refusal("user_input", reason)
+
+
+def _record_llm_output_check(allowed: bool, reason: Any = None) -> None:
+    global total_allowed_llm_outputs, total_erroneous_llm_outputs
+    with _metrics_lock:
+        if allowed:
+            total_allowed_llm_outputs += 1
+        else:
+            total_erroneous_llm_outputs += 1
+            _record_refusal("llm_output", reason)
+
+
+def _timed_chat_completion(**kwargs):
+    """Call the LLM, recording output count and latency (or an erroneous output)."""
+    global total_llm_outputs, total_llm_latency_seconds, total_llm_calls_timed
+    started = time.perf_counter()
+    try:
+        response = inference.chat_completion(**kwargs)
+    except Exception as exc:
+        _record_llm_output_check(False, type(exc).__name__)
+        raise
+    elapsed = time.perf_counter() - started
+    with _metrics_lock:
+        total_llm_outputs += 1
+        total_llm_latency_seconds += elapsed
+        total_llm_calls_timed += 1
+    return response
+
+
+def get_metrics() -> dict[str, Any]:
+    """Return a snapshot of gateway metrics for logging."""
+    with _metrics_lock:
+        return {
+            "total_user_inputs": total_user_inputs,
+            "total_allowed_user_inputs": total_allowed_user_inputs,
+            "total_erroneous_user_inputs": total_erroneous_user_inputs,
+            "total_llm_outputs": total_llm_outputs,
+            "total_allowed_llm_outputs": total_allowed_llm_outputs,
+            "total_erroneous_llm_outputs": total_erroneous_llm_outputs,
+            "average_llm_latency_seconds": (
+                total_llm_latency_seconds / total_llm_calls_timed
+                if total_llm_calls_timed
+                else 0.0
+            ),
+            "refusal_reasons": list(refusal_reasons),
+        }
+
+
 def initial_input_check(user_input: str) -> GATEWAY_DECISION:
     """Check incoming content, including potential prompt injection."""
-    result = inference.judge_user_input(user_input)
+    try:
+        result = inference.judge_user_input(user_input)
+    except Exception as exc:
+        _record_user_input(False, type(exc).__name__)
+        raise
     _record_usage(result)
-    return "ALLOW" if result.get("is_safe") is True else "REJECT"
+    allowed = result.get("is_safe") is True
+    _record_user_input(allowed, result.get("reason"))
+    return "ALLOW" if allowed else "REJECT"
 
 
 def _history_messages(history: list[dict[str, Any]] | None) -> list[dict[str, str]]:
@@ -106,7 +188,7 @@ def send_input_to_llm(
         }
         for name, function in TOOLS.items()
     ]
-    response = inference.chat_completion(
+    response = _timed_chat_completion(
         messages=[
             {
                 "role": "system",
@@ -173,7 +255,7 @@ def send_tool_results_to_llm(
     history: list[dict[str, Any]] | None = None,
 ) -> str:
     """Answer the original question using the retrieved tool results."""
-    response = inference.chat_completion(
+    response = _timed_chat_completion(
         messages=[
             {
                 "role": "system",
