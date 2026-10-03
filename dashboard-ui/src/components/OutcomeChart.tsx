@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from "react";
+import { BarChart3, Table2 } from "lucide-react";
 import type { DayCounts } from "../api";
 import { OUTCOMES } from "./OutcomeBadge";
+import { stagger } from "./ui";
 
-const HEIGHT = 260;
+const HEIGHT = 300;
 const M = { top: 12, right: 8, bottom: 28, left: 44 };
 const MAX_BAR = 24;
 const GAP = 2; // surface gap between stacked segments
 const RADIUS = 4;
-const TOOLTIP_W = 170;
+const TOOLTIP_W = 176;
 
 function formatDay(day: string) {
   return new Date(day + "T00:00:00Z").toLocaleDateString("en-US", {
@@ -27,7 +29,8 @@ function useWidth() {
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   useEffect(() => {
-    const el = ref.current!;
+    const el = ref.current;
+    if (!el) return;
     const ro = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width));
     ro.observe(el);
     return () => ro.disconnect();
@@ -59,19 +62,24 @@ export function OutcomeChart({ days }: { days: DayCounts[] }) {
   const labelEvery = Math.max(1, Math.ceil(days.length / Math.max(Math.floor(plotW / 64), 1)));
 
   const activeDay = active !== null ? days[active] : null;
+  const activeX = active !== null ? M.left + band * (active + 0.5) : 0;
 
   return (
     <section className="card">
       <div className="card-head">
-        <h2>Requests per day by outcome</h2>
+        <div>
+          <h2>Requests per day</h2>
+          <p className="card-sub">Stacked by gateway decision, days in UTC</p>
+        </div>
         <button className="btn small" onClick={() => setAsTable(!asTable)}>
-          {asTable ? "Show chart" : "Show table"}
+          {asTable ? <BarChart3 size={15} /> : <Table2 size={15} />}
+          {asTable ? "Chart" : "Table"}
         </button>
       </div>
 
-      <ul className="legend">
+      <ul className="legend" style={{ marginBottom: 12 }}>
         {OUTCOMES.map((o) => (
-          <li key={o.key}><span className={`swatch status-${o.key}`} />{o.label}</li>
+          <li key={o.key} className={`status-${o.key}`}><span className="swatch" />{o.label}</li>
         ))}
       </ul>
 
@@ -79,16 +87,16 @@ export function OutcomeChart({ days }: { days: DayCounts[] }) {
         <div className="table-wrap">
           <table>
             <thead>
-              <tr><th>Day (UTC)</th><th className="num">Allowed</th><th className="num">Flagged</th><th className="num">Blocked</th><th className="num">Total</th></tr>
+              <tr><th>Day</th><th className="num">Allowed</th><th className="num">Flagged</th><th className="num">Blocked</th><th className="num">Total</th></tr>
             </thead>
             <tbody>
               {days.map((d) => (
                 <tr key={d.day}>
                   <td>{formatDay(d.day)}</td>
-                  <td className="num">{d.allowed}</td>
-                  <td className="num">{d.flagged}</td>
-                  <td className="num">{d.blocked}</td>
-                  <td className="num">{d.allowed + d.flagged + d.blocked}</td>
+                  <td className="num">{d.allowed.toLocaleString("en-US")}</td>
+                  <td className="num">{d.flagged.toLocaleString("en-US")}</td>
+                  <td className="num">{d.blocked.toLocaleString("en-US")}</td>
+                  <td className="num">{(d.allowed + d.flagged + d.blocked).toLocaleString("en-US")}</td>
                 </tr>
               ))}
             </tbody>
@@ -100,8 +108,8 @@ export function OutcomeChart({ days }: { days: DayCounts[] }) {
             <svg width={width} height={HEIGHT} role="img" aria-label="Stacked columns: requests per day by outcome">
               {ticks.map((t) => (
                 <g key={t}>
-                  <line className={t === 0 ? "axis" : "grid"} x1={M.left} x2={M.left + plotW} y1={y(t)} y2={y(t)} />
-                  <text className="tick" x={M.left - 8} y={y(t)} textAnchor="end" dominantBaseline="middle">
+                  <line className={t === 0 ? "axis-line" : "grid-line"} x1={M.left} x2={M.left + plotW} y1={y(t)} y2={y(t)} />
+                  <text className="tick" x={M.left - 10} y={y(t)} textAnchor="end" dominantBaseline="middle">
                     {t.toLocaleString("en-US")}
                   </text>
                 </g>
@@ -112,18 +120,23 @@ export function OutcomeChart({ days }: { days: DayCounts[] }) {
                 const segments = OUTCOMES.map((o) => ({ key: o.key, value: d[o.key] })).filter((s) => s.value > 0);
                 let below = 0;
                 return (
-                  <g key={d.day} opacity={active === null || active === i ? 1 : 0.55}>
-                    {segments.map((s, si) => {
-                      const bottom = y(below);
-                      below += s.value;
-                      const top = y(below);
-                      // every segment above the first gives up GAP px so the surface shows through
-                      const h = Math.max(bottom - top - (si > 0 ? GAP : 0), 1);
-                      const isTop = si === segments.length - 1;
-                      return isTop
-                        ? <path key={s.key} className={`status-${s.key}`} d={topRounded(x, top, barW, h)} />
-                        : <rect key={s.key} className={`status-${s.key}`} x={x} y={top} width={barW} height={h} />;
-                    })}
+                  <g key={d.day} className={active !== null && active !== i ? "dim" : undefined}>
+                    <rect className={active === i ? "band on" : "band"} rx={8}
+                      x={M.left + band * i + 2} y={M.top} width={Math.max(band - 4, 0)} height={plotH} />
+                    {/* columns grow up from the baseline, one after another */}
+                    <g className="col" style={{ ...stagger(i), transformOrigin: `0px ${y(0)}px` }}>
+                      {segments.map((s, si) => {
+                        const bottom = y(below);
+                        below += s.value;
+                        const top = y(below);
+                        // every segment above the first gives up GAP px so the surface shows through
+                        const h = Math.max(bottom - top - (si > 0 ? GAP : 0), 1);
+                        const isTop = si === segments.length - 1;
+                        return isTop
+                          ? <path key={s.key} className={`seg status-${s.key}`} d={topRounded(x, top, barW, h)} />
+                          : <rect key={s.key} className={`seg status-${s.key}`} x={x} y={top} width={barW} height={h} />;
+                      })}
+                    </g>
                     {i % labelEvery === 0 && (
                       <text className="tick" x={x + barW / 2} y={HEIGHT - 8} textAnchor="middle">{formatDay(d.day)}</text>
                     )}
@@ -136,34 +149,36 @@ export function OutcomeChart({ days }: { days: DayCounts[] }) {
                       onFocus={() => setActive(i)}
                       onBlur={() => setActive(null)}
                     />
+                    <rect className="focus-ring" rx={8}
+                      x={M.left + band * i + 2} y={M.top} width={Math.max(band - 4, 0)} height={plotH} />
                   </g>
                 );
               })}
             </svg>
           )}
 
-          {activeDay && active !== null && (
+          {activeDay && (
             <div
               className="tooltip"
               style={{
                 width: TOOLTIP_W,
                 // beside the column, flipped to the left when it would run off the edge
-                left: M.left + band * (active + 0.5) + barW / 2 + 12 + TOOLTIP_W <= width
-                  ? M.left + band * (active + 0.5) + barW / 2 + 12
-                  : Math.max(M.left + band * (active + 0.5) - barW / 2 - 12 - TOOLTIP_W, 0),
-                top: M.top,
+                left: activeX + barW / 2 + 14 + TOOLTIP_W <= width
+                  ? activeX + barW / 2 + 14
+                  : Math.max(activeX - barW / 2 - 14 - TOOLTIP_W, 0),
+                top: M.top + 4,
               }}
             >
               <div className="tooltip-title">{formatDay(activeDay.day)}</div>
               {[...OUTCOMES].reverse().map((o) => (
-                <div className="tooltip-row" key={o.key}>
-                  <span className={`key status-${o.key}`} />
+                <div className={`tooltip-row status-${o.key}`} key={o.key}>
+                  <span className="key" />
                   <strong>{activeDay[o.key].toLocaleString("en-US")}</strong>
                   <span className="muted">{o.label}</span>
                 </div>
               ))}
               <div className="tooltip-row total">
-                <span className="key" />
+                <span className="key" style={{ background: "transparent" }} />
                 <strong>{(activeDay.allowed + activeDay.flagged + activeDay.blocked).toLocaleString("en-US")}</strong>
                 <span className="muted">Total</span>
               </div>

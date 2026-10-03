@@ -1,18 +1,29 @@
+import { Check, TriangleAlert, X } from "lucide-react";
+
 // Outcome is a status, so it is never shown by color alone: icon + label, text in normal ink.
 export const OUTCOMES = [
-  { key: "allowed", value: "ALLOWED", label: "Allowed", icon: "✓" },
-  { key: "flagged", value: "FLAGGED", label: "Flagged", icon: "!" },
-  { key: "blocked", value: "BLOCKED", label: "Blocked", icon: "✕" },
+  { key: "allowed", value: "ALLOWED", label: "Allowed", Icon: Check },
+  { key: "flagged", value: "FLAGGED", label: "Flagged", Icon: TriangleAlert },
+  { key: "blocked", value: "BLOCKED", label: "Blocked", Icon: X },
 ] as const;
 
 export type OutcomeKey = (typeof OUTCOMES)[number]["key"];
 
-export function OutcomeBadge({ outcome }: { outcome: string }) {
-  const known = OUTCOMES.find((o) => o.value === outcome);
-  if (!known) return <span>{outcome}</span>;
+export function OutcomeIcon({ outcome }: { outcome: OutcomeKey }) {
+  const { Icon } = OUTCOMES.find((o) => o.key === outcome)!;
   return (
-    <span className="outcome">
-      <span className={`outcome-icon status-${known.key}`} aria-hidden="true">{known.icon}</span>
+    <span className={`outcome-icon status-${outcome}`} aria-hidden="true">
+      <Icon size={11} strokeWidth={3} />
+    </span>
+  );
+}
+
+export function OutcomeBadge({ outcome, pill = false }: { outcome: string; pill?: boolean }) {
+  const known = OUTCOMES.find((o) => o.value === outcome);
+  if (!known) return <span className="tag">{outcome}</span>;
+  return (
+    <span className={`outcome status-${known.key}${pill ? " pill" : ""}`}>
+      <OutcomeIcon outcome={known.key} />
       {known.label}
     </span>
   );
