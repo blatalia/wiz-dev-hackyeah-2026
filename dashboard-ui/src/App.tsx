@@ -3,6 +3,7 @@ import { getMe, logout, setSessionExpiredHandler, type User } from "./api";
 import { Login } from "./components/Login";
 import { Overview } from "./components/Overview";
 import { Events } from "./components/Events";
+import { Config } from "./components/Config";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -13,7 +14,7 @@ const RANGES = [
 ] as const;
 
 type RangeId = (typeof RANGES)[number]["id"];
-type View = "overview" | "events";
+type View = "overview" | "events" | "config";
 
 export type TimeRange = { from: string; to: string };
 
@@ -51,6 +52,9 @@ export function App() {
           <button className={view === "events" ? "tab active" : "tab"} onClick={() => setView("events")}>
             Events
           </button>
+          <button className={view === "config" ? "tab active" : "tab"} onClick={() => setView("config")}>
+            Config
+          </button>
         </nav>
         <div className="spacer" />
         <span className="muted">{user.email}</span>
@@ -59,7 +63,8 @@ export function App() {
         </button>
       </header>
 
-      <div className="filters">
+      {/* the period only scopes event data, so it is hidden on the config view */}
+      {view !== "config" && <div className="filters">
         <label>
           <span className="muted">Period</span>
           <select value={rangeId} onChange={(e) => setRangeId(e.target.value as RangeId)}>
@@ -67,10 +72,12 @@ export function App() {
           </select>
         </label>
         <button className="btn" onClick={() => setRefreshedAt(Date.now())}>Refresh</button>
-      </div>
+      </div>}
 
       <main>
-        {view === "overview" ? <Overview range={range} /> : <Events range={range} />}
+        {view === "overview" && <Overview range={range} />}
+        {view === "events" && <Events range={range} />}
+        {view === "config" && <Config />}
       </main>
     </div>
   );
