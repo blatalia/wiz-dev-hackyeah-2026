@@ -9,6 +9,8 @@ st.title("Agent")
 st.caption("Corporate assistant")
 if "messages" not in st.session_state:
     st.session_state["messages"] = [{"role": "assistant", "content": "How can I help you?"}]
+if "history" not in st.session_state:
+    st.session_state["history"] = []
 
 for msg in st.session_state.messages:
     st.chat_message(msg["role"]).write(msg["content"])
@@ -18,10 +20,13 @@ if prompt := st.chat_input():
     try:
         with st.spinner("Thinking..."):
             response = requests.post(
-                f"{gateway_url}/chat", json={"prompt": prompt}, timeout=(5, 120)
+                f"{gateway_url}/chat",
+                json={"prompt": prompt, "history": st.session_state.history},
+                timeout=(5, 120),
             )
             response.raise_for_status()
-        msg = response.text
+        result = response.json()
+        msg = result["text"]
     except requests.RequestException as exc:
         if exc.response is not None:
             st.error(exc.response.text or "The gateway could not process your request.")
@@ -35,4 +40,5 @@ if prompt := st.chat_input():
 
     st.session_state.messages.append({"role": "user", "content": prompt})
     st.session_state.messages.append({"role": "assistant", "content": msg})
+    st.session_state.history = result["history"]
     st.chat_message("assistant").write(msg)

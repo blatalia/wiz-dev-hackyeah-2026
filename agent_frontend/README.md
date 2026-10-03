@@ -14,9 +14,12 @@ then start Streamlit from the repository root:
 GATEWAY_URL=http://localhost:8000 python -m streamlit run agent_frontend/main.py
 ```
 
-The frontend sends the current prompt to `POST /chat` and displays the plain-text
-response. Chat messages stay in the UI; previous messages are not sent to the gateway.
-A Thinking indicator is shown while waiting. The default gateway URL is
+The frontend sends the current prompt and session history to `POST /chat`, then
+displays the response's `text`. Streamlit retains prior prompts, answers, tool names
+and full tool results in session memory and sends them on each subsequent turn.
+They survive normal Streamlit reruns and reset on a browser refresh or new session.
+Failed requests do not change the saved history. A Thinking indicator is shown
+while waiting. The default gateway URL is
 `http://localhost:8000`. Configuration comes from environment variables; the app
 never loads `.env` files and needs no model API key.
 

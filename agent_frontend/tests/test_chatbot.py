@@ -18,14 +18,25 @@ class SessionState(dict):
     def __getattr__(self, name):
         return self[name]
 
+    def __setattr__(self, name, value):
+        self[name] = value
+
 
 class ChatbotTests(unittest.TestCase):
-    def run_app(self, env=None, history=None, text="Hello!", error=None):
+    def run_app(self, env=None, history=None, text="Hello!", error=None, conversation=None):
         st = MagicMock()
         st.session_state = SessionState(messages=[GREETING.copy(), *(history or [])])
+        st.session_state["history"] = conversation or []
         st.chat_input.return_value = "Hi"
         st.stop.side_effect = StopScript
         response = MagicMock(text=text)
+        response.json.return_value = {
+            "text": text,
+            "history": [
+                *(conversation or []),
+                {"prompt": "Hi", "answer": text, "tool_results": []},
+            ],
+        }
         with (
             patch.dict(os.environ, env or {}, clear=True),
             patch.dict("sys.modules", {"streamlit": st}),
@@ -40,7 +51,9 @@ class ChatbotTests(unittest.TestCase):
     def test_sends_prompt_to_gateway_and_displays_plain_text(self):
         st, post = self.run_app()
         post.assert_called_once_with(
-            "http://localhost:8000/chat", json={"prompt": "Hi"}, timeout=(5, 120)
+            "http://localhost:8000/chat",
+            json={"prompt": "Hi", "history": []},
+            timeout=(5, 120),
         )
         st.spinner.assert_called_once_with("Thinking...")
         self.assertEqual(st.session_state.messages[-1]["content"], "Hello!")
@@ -66,6 +79,24 @@ class ChatbotTests(unittest.TestCase):
         st, _ = self.run_app(text="   ")
         st.warning.assert_called_once()
         self.assertEqual(st.session_state.messages, [GREETING])
+
+    def test_followup_sends_and_retains_previous_tool_results(self):
+        conversation = [
+            {
+                "prompt": "Check KYC",
+                "answer": "KYC is complete.",
+                "tool_results": [{"name": "get_kyc_status", "content": "source data"}],
+            }
+        ]
+        st, post = self.run_app(conversation=conversation)
+        self.assertEqual(post.call_args.kwargs["json"]["history"], conversation)
+        self.assertEqual(st.session_state.history[0], conversation[0])
+        self.assertEqual(len(st.session_state.history), 2)
+
+    def test_failed_turn_does_not_change_retained_history(self):
+        conversation = [{"prompt": "Hello", "answer": "Hello!", "tool_results": []}]
+        st, _ = self.run_app(conversation=conversation, error=requests.ConnectionError())
+        self.assertEqual(st.session_state.history, conversation)
 
 
 if __name__ == "__main__":

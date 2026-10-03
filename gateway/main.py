@@ -11,7 +11,6 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
 from gateway.guardrails import guardrails
-from llm.inference import LLMConfigurationError
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -23,8 +22,25 @@ app = FastAPI(title="Agent gateway", lifespan=lifespan)
 logger = logging.getLogger("uvicorn.error")
 
 
+class ToolResult(BaseModel):
+    name: str
+    content: str
+
+
+class ConversationTurn(BaseModel):
+    prompt: str
+    answer: str
+    tool_results: list[ToolResult] = Field(default_factory=list)
+
+
 class ChatRequest(BaseModel):
     prompt: str = Field(min_length=1)
+    history: list[ConversationTurn] = Field(default_factory=list)
+
+
+class ChatResponse(BaseModel):
+    text: str
+    history: list[ConversationTurn]
 
 
 @app.get("/health")
@@ -32,8 +48,8 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/chat", response_class=PlainTextResponse)
-def chat(request: ChatRequest) -> PlainTextResponse:
+@app.post("/chat", response_model=ChatResponse)
+def chat(request: ChatRequest):
     prompt = request.prompt.strip()
     if not prompt:
         return PlainTextResponse("Please enter a prompt.", status_code=400)
@@ -46,14 +62,22 @@ def chat(request: ChatRequest) -> PlainTextResponse:
             )
 
         stage = "LLM tool selection"
-        result = json.loads(guardrails.send_input_to_llm(prompt))
-        parts = [result["text"]] if result["text"] else []
-        for name in result["tools"]:
+        history = [turn.model_dump() for turn in request.history]
+        result = json.loads(guardrails.send_input_to_llm(prompt, history=history))
+        text = result["text"]
+        tool_results = []
+        if result["tools"]:
             stage = "tool execution"
-            parts.append(f"{name}:\n{guardrails.call_tool(name)}")
-        text = "\n\n".join(parts) or "The assistant returned no text."
-        return PlainTextResponse(text)
-    except LLMConfigurationError:
+            tool_results = [
+                {"name": name, "content": guardrails.call_tool(name)}
+                for name in result["tools"]
+            ]
+            stage = "LLM summary"
+            text = guardrails.send_tool_results_to_llm(prompt, tool_results, history=history)
+        text = text or "The assistant returned no text."
+        turn = ConversationTurn(prompt=prompt, answer=text, tool_results=tool_results)
+        return ChatResponse(text=text, history=[*request.history, turn])
+    except RuntimeError:
         logger.error("MGA_TOKEN is not set in the gateway process environment.")
         return PlainTextResponse(
             "The gateway is missing MGA_TOKEN. Set it in the server environment and restart.",

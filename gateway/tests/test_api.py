@@ -31,6 +31,8 @@ class GatewayAPITests(unittest.TestCase):
             {"text": "Hello!", "tools": []}
         )
         self.guardrails.call_tool.side_effect = None
+        self.guardrails.send_tool_results_to_llm.return_value = "KYC verification is complete."
+        self.guardrails.send_tool_results_to_llm.side_effect = None
 
     def test_health_does_not_call_llm(self):
         response = self.client.get("/health")
@@ -40,9 +42,13 @@ class GatewayAPITests(unittest.TestCase):
     def test_plain_text_answer(self):
         response = self.client.post("/chat", json={"prompt": "Hello"})
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.text, "Hello!")
-        self.assertTrue(response.headers["content-type"].startswith("text/plain"))
+        self.assertEqual(response.json()["text"], "Hello!")
+        self.assertEqual(
+            response.json()["history"],
+            [{"prompt": "Hello", "answer": "Hello!", "tool_results": []}],
+        )
         self.guardrails.call_tool.assert_not_called()
+        self.guardrails.send_tool_results_to_llm.assert_not_called()
 
     def test_selected_tools_are_called_and_results_returned(self):
         self.guardrails.send_input_to_llm.return_value = json.dumps(
@@ -50,8 +56,48 @@ class GatewayAPITests(unittest.TestCase):
         )
         self.guardrails.call_tool.return_value = '{"status":"completed"}'
         response = self.client.post("/chat", json={"prompt": "Check KYC status"})
-        self.assertEqual(response.text, 'get_kyc_status:\n{"status":"completed"}')
+        self.assertEqual(response.json()["text"], "KYC verification is complete.")
         self.guardrails.call_tool.assert_called_once_with("get_kyc_status")
+        self.guardrails.send_tool_results_to_llm.assert_called_once_with(
+            "Check KYC status",
+            [{"name": "get_kyc_status", "content": '{"status":"completed"}'}],
+            history=[],
+        )
+
+    def test_followup_retains_old_results_and_can_call_new_tools(self):
+        history = [
+            {
+                "prompt": "Check KYC",
+                "answer": "KYC is complete.",
+                "tool_results": [{"name": "get_kyc_status", "content": "old source data"}],
+            }
+        ]
+        self.guardrails.send_input_to_llm.return_value = json.dumps(
+            {"text": "", "tools": ["get_management_accounts"]}
+        )
+        self.guardrails.call_tool.return_value = "new accounts data"
+        response = self.client.post(
+            "/chat", json={"prompt": "What about EBITDA?", "history": history}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.guardrails.send_input_to_llm.assert_called_once_with(
+            "What about EBITDA?", history=history
+        )
+        self.guardrails.send_tool_results_to_llm.assert_called_once_with(
+            "What about EBITDA?",
+            [{"name": "get_management_accounts", "content": "new accounts data"}],
+            history=history,
+        )
+        self.assertEqual(response.json()["history"][0], history[0])
+        self.assertEqual(len(response.json()["history"]), 2)
+
+    def test_followup_can_answer_from_history_without_new_calls(self):
+        history = [{"prompt": "Hello", "answer": "Hello!", "tool_results": []}]
+        response = self.client.post("/chat", json={"prompt": "Continue", "history": history})
+        self.assertEqual(response.status_code, 200)
+        self.guardrails.call_tool.assert_not_called()
+        self.guardrails.send_tool_results_to_llm.assert_not_called()
+        self.assertEqual(response.json()["history"][0], history[0])
 
     def test_rejection_stops_before_tool_selection(self):
         self.guardrails.initial_input_check.return_value = "REJECT"

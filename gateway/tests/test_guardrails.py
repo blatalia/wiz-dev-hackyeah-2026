@@ -112,6 +112,58 @@ class GuardrailsTests(unittest.TestCase):
             self.guardrails.call_tool("get_kyc_status"), source.read_bytes().decode("utf-8")
         )
 
+    def test_summary_receives_original_question_and_named_results(self):
+        results = [{"name": "get_kyc_status", "content": '{"status":"completed"}'}]
+        response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="KYC is complete."))]
+        )
+        with patch.object(
+            self.guardrails.inference, "chat_completion", return_value=response
+        ) as chat:
+            answer = self.guardrails.send_tool_results_to_llm("Is KYC complete?", results)
+        self.assertEqual(answer, "KYC is complete.")
+        request = chat.call_args.kwargs
+        self.assertEqual(request["messages"][1]["content"], "Is KYC complete?")
+        self.assertEqual(
+            json.loads(request["messages"][2]["content"].split("\n", 1)[1]), results
+        )
+        self.assertNotIn("tools", request)
+
+    def test_summary_handles_empty_model_response(self):
+        response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=None))]
+        )
+        with patch.object(self.guardrails.inference, "chat_completion", return_value=response):
+            self.assertEqual(self.guardrails.send_tool_results_to_llm("Question", []), "")
+
+    def test_history_is_available_to_selection_and_summary(self):
+        history = [
+            {
+                "prompt": "Check KYC",
+                "answer": "KYC is complete.",
+                "tool_results": [{"name": "get_kyc_status", "content": "prior source data"}],
+            }
+        ]
+        response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="Answer", tool_calls=[]))]
+        )
+        for function, args in (
+            (self.guardrails.send_input_to_llm, ("What about EBITDA?",)),
+            (self.guardrails.send_tool_results_to_llm, ("What about EBITDA?", [])),
+        ):
+            with self.subTest(function=function.__name__):
+                with patch.object(
+                    self.guardrails.inference, "chat_completion", return_value=response
+                ) as chat:
+                    function(*args, history=history)
+                messages = chat.call_args.kwargs["messages"]
+                self.assertEqual(messages[1], {"role": "user", "content": "Check KYC"})
+                self.assertIn("prior source data", messages[2]["content"])
+                self.assertEqual(messages[3], {"role": "assistant", "content": "KYC is complete."})
+                self.assertEqual(messages[4]["content"], "What about EBITDA?")
+                if function is self.guardrails.send_input_to_llm:
+                    self.assertEqual(len(chat.call_args.kwargs["tools"]), 10)
+
     def test_unknown_tool_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "Unknown tool"):
             self.guardrails.call_tool("_read_file")

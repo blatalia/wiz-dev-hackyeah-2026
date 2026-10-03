@@ -32,11 +32,17 @@ without logging prompts, retrieved data, tokens or provider response bodies.
 ## Endpoints
 
 - `GET /health` returns `{"status": "ok"}` without calling the LLM.
-- `POST /chat` accepts `{"prompt": "Analyze customer revenue concentration."}`.
+- `POST /chat` accepts `{"prompt": "Analyze customer revenue concentration.", "history": []}`.
 
-Chat checks the prompt, asks the LLM to select tools, calls those tools by name,
-and returns plain text containing the LLM's text and the retrieved file contents.
-It does not make a second LLM call to summarize tool results. Rejected input returns
+Chat checks the prompt, asks the LLM to select tools, and calls those tools by name.
+When tools are used, it sends the original question and named tool results back to
+the LLM and returns its summary. With no tools, it returns the initial LLM answer
+directly. Successful responses are JSON objects with `text` and `history`.
+Each history turn contains `prompt`, `answer` and `tool_results` (a list of
+`{"name": "tool_name", "content": "full result"}` records). Send the returned
+history with the next request to retain prior messages and tool calls/results.
+Both LLM steps receive that history, and tool selection remains available on every
+turn. The gateway stores no conversations itself. Rejected input returns
 HTTP 403, whitespace-only input returns HTTP 400, and provider or tool failures return
 HTTP 502 with a generic message. Invalid request bodies return HTTP 422.
 
