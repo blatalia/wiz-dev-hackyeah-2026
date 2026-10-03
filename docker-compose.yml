@@ -45,5 +45,29 @@ services:
     depends_on:
       - api
 
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    container_name: ai-gateway
+    restart: unless-stopped
+    env_file: ./gateway/.env
+    ports:
+      - "8000:8000"
+
+  agent:
+    build: ./agent_frontend
+    container_name: agent-frontend
+    restart: unless-stopped
+    environment:
+      # Containers share the compose network, so the gateway is reachable by
+      # its service name rather than localhost or the EC2 public IP.
+      GATEWAY_URL: http://gateway:8000
+    ports:
+      - "8501:8501"
+    depends_on:
+      gateway:
+        condition: service_healthy
+
 volumes:
   pgdata:
