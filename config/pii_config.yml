@@ -3,6 +3,7 @@ pii_to_anonymize:
   - ADDRESS
   - BUILDING_NUMBER
   - CITY
+  - COUNTRY
   - COMPANY_NAME
   - CREDIT_CARD_NUMBER
   - EMAIL

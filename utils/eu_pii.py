@@ -142,8 +142,8 @@ class PIIDetector:
         return json.dumps(self.detect(text), **json_kwargs)
 
 
-if __name__ == "__main__":
-    text = "My name is Sarah Jessica Parker. I am conducting a merger of RheinIndustrial with BalticInc. I'll email john.pork@gmail.com and contact Eva Muller. My home address is 123 Main St, Anytown, USA. The bank account in question is PL50558984522137676769694200."
-    detector = PIIDetector()
-    print(detector.detect_json(text, indent=2))
+# if __name__ == "__main__":
+#     text = "My name is Sarah Jessica Parker. I am conducting a merger of Rhein Industrial with BalticInc. I'll email john.pork@gmail.com and contact Eva Muller. My home address is 123 Main St, Anytown, USA. The bank account in question is PL50558984522137676769694200."
+#     detector = PIIDetector()
+#     print(detector.detect_json(text, indent=2))
 
