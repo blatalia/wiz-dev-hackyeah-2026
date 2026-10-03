@@ -1,19 +1,88 @@
-"""Function stubs for the gateway's guardrail and request processing stages."""
+"""Gateway checks, LLM requests and direct calls to the demo MCP tools."""
 
+import importlib.util
+import inspect
+import json
+from pathlib import Path
 from typing import Any, Literal, TypeAlias
 
+from llm import inference
+
+# Load by path because the local mcp/ folder shares its name with the MCP SDK.
+_tools_path = Path(__file__).resolve().parents[2] / "mcp" / "tools_bianka.py"
+_tools_spec = importlib.util.spec_from_file_location("tools_bianka", _tools_path)
+_tools_module = importlib.util.module_from_spec(_tools_spec)
+_tools_spec.loader.exec_module(_tools_module)
+
+TOOLS = {
+    name: getattr(_tools_module, name)
+    for name in (
+        "get_customer_contract_c014",
+        "get_merger_review_excerpts",
+        "get_customer_revenue",
+        "get_management_accounts",
+        "get_hr_payroll",
+        "get_hr_aggregate",
+        "get_kyc_details",
+        "get_kyc_status",
+        "get_third_party_note",
+        "get_technical_appendix",
+    )
+}
 
 GATEWAY_DECISION: TypeAlias = Literal["ALLOW", "REJECT"]
 
 
 def initial_input_check(user_input: str) -> GATEWAY_DECISION:
     """Check incoming content, including potential prompt injection."""
-    pass
+    result = inference.judge_user_input(user_input)
+    return "ALLOW" if result.get("is_safe") is True else "REJECT"
 
 
 def send_input_to_llm(user_input: str) -> str:
-    """Send the checked input to the LLM."""
-    pass
+    """Send input and tool descriptions; return JSON text with text and tool names.
+
+    Example result: {"text": "", "tools": ["get_customer_revenue"]}.
+    This selects tools but does not execute them or run permission checks.
+    """
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": inspect.getdoc(function),
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                    "additionalProperties": False,
+                },
+            },
+        }
+        for name, function in TOOLS.items()
+    ]
+    response = inference.chat_completion(
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a corporate due-diligence assistant for Project Baltic. "
+                    "Select the tools needed to answer the user's request using their "
+                    "descriptions. If no tools are needed, answer directly."
+                ),
+            },
+            {"role": "user", "content": user_input},
+        ],
+        tools=tools,
+    )
+    message = response.choices[0].message
+    return json.dumps(
+        {
+            "text": message.content or "",
+            "tools": [call.function.name for call in (message.tool_calls or [])],
+        },
+        ensure_ascii=False,
+    )
 
 
 def llm_output_check(llm_output: str) -> GATEWAY_DECISION:
@@ -26,9 +95,11 @@ def tool_access_check(user_id: str, tool_name: str) -> GATEWAY_DECISION:
     pass
 
 
-def call_tool(tool_name: str, arguments: dict[str, Any]) -> Any:
+def call_tool(tool_name: str) -> str:
     """Call a tool after the agent's permissions have been checked."""
-    pass
+    if tool_name not in TOOLS:
+        raise ValueError(f"Unknown tool: {tool_name}")
+    return TOOLS[tool_name]()
 
 
 def tool_output_check(tool_output: Any) -> GATEWAY_DECISION:
