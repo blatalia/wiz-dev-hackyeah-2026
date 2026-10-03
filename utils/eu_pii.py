@@ -1,22 +1,37 @@
 import json
 import os
+from pathlib import Path
 
 import torch
+import yaml
 from dotenv import load_dotenv
 from huggingface_hub import InferenceClient
 from transformers import AutoModelForTokenClassification, AutoTokenizer
+
+DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "pii_config.yml"
 
 LABEL_ALIASES = {
     "ORG": "COMPANY_NAME",
     "PER": "PERSON",
     "private_person": "PERSON",
     "private_email": "EMAIL",
+    "LOC": "LOCATION",
+    "MISC": "MISCALLANEOUS",
+    "FIRSTNAME": "PERSON",
+    "LASTNAME": "PERSON",
+    "MIDDLENAME": "PERSON",
 }
 
 
 def normalize(label: str) -> str:
     label = label.split("-", 1)[-1] if "-" in label else label
     return LABEL_ALIASES.get(label, label)
+
+
+def load_pii_to_anonymize(config_path: Path) -> set[str]:
+    with open(config_path, "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+    return set(config.get("pii_to_anonymize", []))
 
 
 def spans_overlap(a: dict, b: dict) -> bool:
@@ -33,7 +48,7 @@ def bridge_gaps(spans: list[dict], text: str) -> list[dict]:
     for e in spans[1:]:
         last = merged[-1]
         gap = text[last["end"]:e["start"]]
-        if e["label"] == last["label"] and gap.strip() == "":
+        if e["label"] == last["label"] and not any(ch.isspace() for ch in gap):
             last["end"] = e["end"]
             last["score"] = max(last["score"], e["score"])
         else:
@@ -49,12 +64,14 @@ class PIIDetector:
         pii_model_name: str = "tabularisai/eu-pii-safeguard",
         ner_model_name: str = "dslim/bert-base-NER",
         api_key: str | None = None,
+        config_path: Path = DEFAULT_CONFIG_PATH,
     ) -> None:
         load_dotenv()
         self.ner_model_name = ner_model_name
         self.tokenizer = AutoTokenizer.from_pretrained(pii_model_name)
         self.model = AutoModelForTokenClassification.from_pretrained(pii_model_name)
         self.client = InferenceClient(provider="hf-inference", api_key=api_key or os.getenv("API_KEY"))
+        self.pii_to_anonymize = load_pii_to_anonymize(config_path)
 
     def _run_pii_safeguard(self, text: str) -> list[dict]:
         inputs = self.tokenizer(text, return_tensors="pt", truncation=True, return_offsets_mapping=True)
@@ -88,13 +105,13 @@ class PIIDetector:
         return bridge_gaps(spans, text)
 
     def _run_bert_ner(self, text: str) -> list[dict]:
-        """Used only for its stronger COMPANY_NAME/ORG recall."""
+        """Backfill for classes eu-pii-safeguard misses/doesn't cover: companies and names."""
         result = self.client.token_classification(text, model=self.ner_model_name)
         spans = [
             {"start": e.start, "end": e.end, "label": normalize(e.entity or e.entity_group), "score": e.score}
             for e in result
         ]
-        spans = [s for s in spans if s["label"] == "COMPANY_NAME"]
+        spans = [s for s in spans if s["label"] in ("COMPANY_NAME", "PERSON")]
         return bridge_gaps(spans, text)
 
     def _merge(self, *entity_lists: list[dict]) -> list[dict]:
@@ -118,14 +135,15 @@ class PIIDetector:
         return [
             {"label": e["label"], "text": text[e["start"]:e["end"]], "start": e["start"], "end": e["end"], "score": e["score"]}
             for e in merged
+            if e["label"] in self.pii_to_anonymize
         ]
 
     def detect_json(self, text: str, **json_kwargs) -> str:
         return json.dumps(self.detect(text), **json_kwargs)
 
 
-# if __name__ == "__main__":
-#     text = "My name is Sarah Jessica Parker. I am conducting a merger of RolloCorp with BalticInc. Ill email john.pork@gmail.com"
-#     detector = PIIDetector()
-#     print(detector.detect_json(text, indent=2))
+if __name__ == "__main__":
+    text = "My name is Sarah Jessica Parker. I am conducting a merger of RolloCorp with BalticInc. I'll email john.pork@gmail.com and contact Eva Muller. My home address is 123 Main St, Anytown, USA. The bank account in question is PL50558984522137676769694200."
+    detector = PIIDetector()
+    print(detector.detect_json(text, indent=2))
 
