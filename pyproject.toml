@@ -11,6 +11,8 @@ dependencies = [
     "dotenv",
     "pyyaml>=6.0,<7.0",
     "boto3>=1.34,<2.0",
+    "bitsandbytes",
+    "accelerate",
 ]
 
 [build-system]

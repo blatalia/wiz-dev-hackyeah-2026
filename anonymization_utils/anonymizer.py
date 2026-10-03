@@ -1,6 +1,8 @@
 import csv
 from pathlib import Path
 
+from eu_pii import PIIDetector
+
 # from eu_pii import PIIDetector
 
 DEFAULT_DICT_PATH = Path(__file__).with_name("anonymization_dict.csv")
@@ -22,7 +24,8 @@ class Anonymizer:
                 lookup[key] = row["ID"].strip()
         return lookup
 
-    def anonymize(self, text: str, detections: list[dict]) -> str:
+    def anonymize(self, text: str) -> str:
+        detections = PIIDetector().detect(text)
         detections = sorted(detections, key=lambda e: e["start"])
 
         pieces = []
@@ -38,9 +41,8 @@ class Anonymizer:
         return "".join(pieces)
 
 
-# if __name__ == "__main__":
-#     text = "My name is Sarah Jessica Parker. I am conducting a merger of Rhein Industrial with BalticInc. I'll email john.pork@gmail.com and contact Eva Muller. My home address is 123 Main St, Anytown, USA. The bank account in question is PL50558984522137676769694200."
-#     detections = PIIDetector().detect(text)
+if __name__ == "__main__":
+    text = "My name is Sarah Jessica Parker. I am conducting a merger of Rhein Industrial with BalticInc. I'll email john.pork@gmail.com and contact Eva Muller. My home address is 123 Main St, Anytown, USA. The bank account in question is PL50558984522137676769694200."
 
-#     anonymizer = Anonymizer()
-#     print(anonymizer.anonymize(text, detections))
+    anonymizer = Anonymizer()
+    print(anonymizer.anonymize(text))
