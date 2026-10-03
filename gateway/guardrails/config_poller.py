@@ -50,6 +50,12 @@ def get_check_enabled(flag_name: str, default: bool = True) -> bool:
     return raw == "true"
 
 
+def get_num_tool_calls(default: int = 2) -> int:
+    """Read the latest numeric limit, falling back when absent or invalid."""
+    raw = os.environ.get(_flag_to_env_var("num_tool_calls"), "")
+    return int(raw) if raw.isdecimal() else default
+
+
 class ConfigPoller:
     """Polls a DynamoDB config item on an interval and syncs it to os.environ.
 
@@ -76,11 +82,11 @@ class ConfigPoller:
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
-        self._last_known_good: dict[str, bool] = {}
+        self._last_known_good: dict[str, bool | int] = {}
 
     def start(self) -> None:
         """Load config synchronously once, then start background polling."""
-        self._poll_once(raise_on_error=True)
+        self._poll_once(raise_on_error=False)
         self._stop_event.clear()
         self._thread = threading.Thread(
             target=self._run,
@@ -130,11 +136,16 @@ class ConfigPoller:
             )
             return
 
-        new_values: dict[str, bool] = {
+        new_values: dict[str, bool | int] = {
             key: av["BOOL"]
             for key, av in item.items()
             if key != "configId" and "BOOL" in av
         }
+        limit = item.get("num_tool_calls", {}).get("N", "")
+        # The limit is a number, separate from the existing boolean flags.
+        new_values.pop("num_tool_calls", None)
+        if limit.isdecimal():
+            new_values["num_tool_calls"] = int(limit)
 
         with self._lock:
             changed = {
@@ -144,6 +155,8 @@ class ConfigPoller:
             }
             if changed:
                 for key, value in changed.items():
-                    os.environ[_flag_to_env_var(key)] = "true" if value else "false"
+                    os.environ[_flag_to_env_var(key)] = (
+                        ("true" if value else "false") if isinstance(value, bool) else str(value)
+                    )
                     logger.info("Config flag changed: %s -> %s", key, value)
                 self._last_known_good = new_values

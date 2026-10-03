@@ -81,7 +81,7 @@ class GatewayAPITests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.guardrails.send_input_to_llm.assert_called_once_with(
-            "What about EBITDA?", history=history
+            "What about EBITDA?", history=history, allow_tools=True
         )
         self.guardrails.send_tool_results_to_llm.assert_called_once_with(
             "What about EBITDA?",

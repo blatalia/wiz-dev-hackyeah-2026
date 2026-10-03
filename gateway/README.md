@@ -41,8 +41,8 @@ directly. Successful responses are JSON objects with `text` and `history`.
 Each history turn contains `prompt`, `answer` and `tool_results` (a list of
 `{"name": "tool_name", "content": "full result"}` records). Send the returned
 history with the next request to retain prior messages and tool calls/results.
-Both LLM steps receive that history, and tool selection remains available on every
-turn. The gateway stores no conversations itself. Rejected input returns
+Both LLM steps receive that history, and tool selection remains available while
+the conversation has tool calls remaining. The gateway stores no conversations itself. Rejected input returns
 HTTP 403, whitespace-only input returns HTTP 400, and provider or tool failures return
 HTTP 502 with a generic message. Invalid request bodies return HTTP 422.
 
@@ -59,6 +59,24 @@ Point Streamlit's `GATEWAY_URL` at `http://localhost:8000` locally or
 
 Permission checks, output checks and end-to-end processing remain stubs.
 Tool execution currently has no permission enforcement.
+
+## Tool-call limit
+
+`NUM_TOOL_CALLS_HARDCODE = 2` in `gateway/main.py` is the fallback per conversation.
+The existing DynamoDB config poller can override it with a numeric `num_tool_calls`
+attribute (a non-negative integer; 0 disables new retrieval). It mirrors the value
+to `GATEWAY_CHECK_NUM_TOOL_CALLS`, which the gateway reads on each request.
+Missing or invalid values use the fallback. Initial polling failures allow startup
+with the fallback; later polling failures retain the last successfully loaded value.
+
+The gateway counts the tool results in the supplied conversation history. Once the
+allowance is exhausted, no tool definitions are sent to the LLM, and it can still
+answer using retained results. Every selected batch is also checked before execution:
+if it exceeds the remaining allowance, none of its tools execute. The response
+explains the limit. A successful batch that uses the last available calls includes
+a notice that no further retrieval is available.
+
+This uses the existing session history, so refreshing the browser resets the budget.
 
 ## Docker
 
