@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { ArrowDownRight, ArrowUpRight, Minus, type LucideIcon } from "lucide-react";
 
 // Sets the --i custom property that staggers entrance animations.
 export function stagger(i: number): CSSProperties {
@@ -41,6 +42,22 @@ export function Num({ value, digits = 0 }: { value: number; digits?: number }) {
   );
 }
 
+// Change against the previous period. Kept in neutral ink: whether "more blocked
+// requests" is good or bad depends on what the reader is looking for.
+export function Delta({ current, previous, period }: { current: number; previous: number; period: string }) {
+  if (previous === 0) {
+    return <span className="delta">{current === 0 ? `No change vs ${period}` : `Nothing in ${period}`}</span>;
+  }
+  const change = ((current - previous) / previous) * 100;
+  const Icon = Math.abs(change) < 0.05 ? Minus : change > 0 ? ArrowUpRight : ArrowDownRight;
+  return (
+    <span className="delta" title={`${previous.toLocaleString("en-US")} in ${period}`}>
+      <Icon size={14} />
+      <strong>{Math.abs(change).toFixed(1)}%</strong> vs {period}
+    </span>
+  );
+}
+
 export function Sparkline({ values }: { values: number[] }) {
   if (values.length < 2) return <svg className="spark" aria-hidden="true" />;
   const max = Math.max(...values, 1);
@@ -53,7 +70,7 @@ export function Sparkline({ values }: { values: number[] }) {
   return (
     <svg className="spark" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
       <path className="spark-area" d={`${line} L${W},${H} L0,${H} Z`} />
-      <path className="spark-line" d={line} pathLength={1} />
+      <path className="spark-line" d={line} />
     </svg>
   );
 }
@@ -74,6 +91,24 @@ export function Segmented<T extends string>({ label, options, value, onChange }:
           {o.label}
         </button>
       ))}
+    </div>
+  );
+}
+
+// Empty and error states: what happened, why, and what to do next.
+export function State({ Icon, title, children, action, tone = "neutral" }: {
+  Icon: LucideIcon;
+  title: string;
+  children?: ReactNode;
+  action?: ReactNode;
+  tone?: "neutral" | "error";
+}) {
+  return (
+    <div className={`state ${tone}`} role={tone === "error" ? "alert" : undefined}>
+      <span className="state-icon"><Icon size={22} /></span>
+      <h3>{title}</h3>
+      {children && <p>{children}</p>}
+      {action}
     </div>
   );
 }

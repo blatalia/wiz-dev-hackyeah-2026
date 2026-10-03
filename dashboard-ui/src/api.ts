@@ -16,15 +16,19 @@ export type EventSummary = {
 
 export type EventPage = { items: EventSummary[]; nextCursor: string | null };
 
-export type DayCounts = { day: string; allowed: number; flagged: number; blocked: number };
+export type StatsBucket = "day" | "hour";
+
+// start is the first instant of the bucket, e.g. "2026-10-03T14:00:00Z"
+export type BucketCounts = { start: string; allowed: number; flagged: number; blocked: number };
 
 export type EventStats = {
   range: { from: string; to: string };
+  bucket: StatsBucket;
   totals: {
     total: number; allowed: number; flagged: number; blocked: number;
     avgLatencyMs: number | null; p95LatencyMs: number | null;
   };
-  byDay: DayCounts[];
+  series: BucketCounts[];
   topReasons: { reasonCode: string; count: number }[];
   topPrincipals: { principalId: string; total: number; blocked: number }[];
 };
@@ -95,6 +99,7 @@ export type EventQuery = {
   to?: string;
   outcome?: string;
   principalId?: string;
+  reasonCode?: string;
   severity?: string;
   cursor?: string;
   limit?: number;
@@ -114,11 +119,12 @@ export function getEvents(query: EventQuery) {
 }
 
 export function getEvent(requestId: string) {
-  return request<Record<string, unknown>>("/events/" + encodeURIComponent(requestId));
+  // the gateway's event format is still settling, so the detail view reads it defensively
+  return request<Record<string, any>>("/events/" + encodeURIComponent(requestId));
 }
 
-export function getStats(from: string, to: string) {
-  return request<EventStats>("/events/stats" + queryString({ from, to }));
+export function getStats(from: string, to: string, bucket: StatsBucket = "day") {
+  return request<EventStats>("/events/stats" + queryString({ from, to, bucket }));
 }
 
 export function getConfig() {

@@ -1,38 +1,42 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Activity, CircleAlert } from "lucide-react";
-import { getStats, type DayCounts, type EventStats } from "../api";
+import { Activity, CloudOff, RotateCw } from "lucide-react";
+import { getStats, type BucketCounts, type EventStats, type StatsBucket } from "../api";
 import type { TimeRange } from "../App";
+import { href, type Params } from "../route";
 import { OutcomeChart } from "./OutcomeChart";
 import { OUTCOMES, OutcomeIcon } from "./OutcomeBadge";
-import { Num, Sparkline, stagger } from "./ui";
+import { Delta, Num, Sparkline, State, stagger } from "./ui";
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+const STEP_MS: Record<StatsBucket, number> = { hour: 60 * 60 * 1000, day: 24 * 60 * 60 * 1000 };
 
-// The API only returns days that have events; add the empty ones so the axis has no holes.
-function fillDays(stats: EventStats): DayCounts[] {
-  const known = new Map(stats.byDay.map((d) => [d.day, d]));
-  const days: DayCounts[] = [];
-  const last = stats.range.to.slice(0, 10);
-  for (let t = Date.parse(stats.range.from.slice(0, 10)); ; t += DAY_MS) {
-    const day = new Date(t).toISOString().slice(0, 10);
-    if (day > last) break;
-    days.push(known.get(day) ?? { day, allowed: 0, flagged: 0, blocked: 0 });
+const bucketStart = (ms: number) => new Date(ms).toISOString().slice(0, 19) + "Z";
+
+// The API only returns buckets that have events; add the empty ones so the axis has no holes.
+function fillBuckets(stats: EventStats): BucketCounts[] {
+  const step = STEP_MS[stats.bucket];
+  const known = new Map(stats.series.map((b) => [b.start, b]));
+  const out: BucketCounts[] = [];
+  const end = Date.parse(stats.range.to);
+  for (let t = Math.floor(Date.parse(stats.range.from) / step) * step; t < end; t += step) {
+    const start = bucketStart(t);
+    out.push(known.get(start) ?? { start, allowed: 0, flagged: 0, blocked: 0 });
   }
-  return days;
+  return out;
 }
 
 const pct = (part: number, total: number) => (total ? (part / total) * 100 : 0);
 
-function Kpi({ i, status, label, value, note, trend }: {
-  i: number; status: string; label: ReactNode; value: number; note: string; trend: number[];
+function Kpi({ i, status, label, value, previous, period, trend, to }: {
+  i: number; status: string; label: ReactNode; value: number; previous: number; period: string;
+  trend: number[]; to: string;
 }) {
   return (
-    <div className={`card kpi rise status-${status}`} style={stagger(i)}>
+    <a className={`card kpi rise status-${status}`} style={stagger(i)} href={to}>
       <div className="kpi-label">{label}</div>
       <div className="kpi-value"><Num value={value} /></div>
-      <div className="kpi-note">{note}</div>
+      <div className="kpi-note"><Delta current={value} previous={previous} period={period} /></div>
       <Sparkline values={trend} />
-    </div>
+    </a>
   );
 }
 
@@ -40,7 +44,7 @@ function BarList({ i, title, sub, rows, empty }: {
   i: number;
   title: string;
   sub: string;
-  rows: { label: string; value: number; note?: string }[];
+  rows: { label: string; value: number; note?: string; to: string }[];
   empty: string;
 }) {
   const max = Math.max(...rows.map((r) => r.value), 1);
@@ -56,14 +60,16 @@ function BarList({ i, title, sub, rows, empty }: {
         <ul className="barlist">
           {rows.map((r, ri) => (
             <li key={r.label}>
-              <span className="barlist-label">{r.label}</span>
-              <span className="barlist-value">
-                {r.value.toLocaleString("en-US")}
-                {r.note && <span className="muted"> {r.note}</span>}
-              </span>
-              <span className="barlist-track">
-                <span className="barlist-bar" style={{ ...stagger(ri), width: `${(r.value / max) * 100}%` }} />
-              </span>
+              <a href={r.to} title={`Show events: ${r.label}`}>
+                <span className="barlist-label">{r.label}</span>
+                <span className="barlist-value">
+                  {r.value.toLocaleString("en-US")}
+                  {r.note && <span className="muted"> {r.note}</span>}
+                </span>
+                <span className="barlist-track">
+                  <span className="barlist-bar" style={{ ...stagger(ri), width: `${(r.value / max) * 100}%` }} />
+                </span>
+              </a>
             </li>
           ))}
         </ul>
@@ -83,47 +89,70 @@ function Loading() {
   );
 }
 
-export function Overview({ range }: { range: TimeRange }) {
+export function Overview({ range, rangeParam }: { range: TimeRange; rangeParam: string | undefined }) {
   const [stats, setStats] = useState<EventStats | null>(null);
+  const [previous, setPrevious] = useState<EventStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let stale = false;
     setLoading(true);
-    getStats(range.from, range.to)
-      .then((s) => { if (!stale) { setStats(s); setError(null); } })
+    const span = Date.parse(range.to) - Date.parse(range.from);
+    const previousFrom = new Date(Date.parse(range.from) - span).toISOString();
+    Promise.all([
+      getStats(range.from, range.to, range.id === "24h" ? "hour" : "day"),
+      // same-length window right before this one, for the "vs previous" figures
+      getStats(previousFrom, range.from),
+    ])
+      .then(([now, before]) => { if (!stale) { setStats(now); setPrevious(before); setError(null); } })
       .catch((e) => { if (!stale) setError(e.message); })
       .finally(() => { if (!stale) setLoading(false); });
     return () => { stale = true; };
-  }, [range.from, range.to]);
+  }, [range.from, range.to, range.id, attempt]);
 
-  if (error) {
-    return <p className="form-error" role="alert"><CircleAlert size={16} />Could not load statistics: {error}</p>;
+  if (error && !stats) {
+    return (
+      <State Icon={CloudOff} tone="error" title="Statistics could not be loaded"
+        action={<button className="btn" onClick={() => setAttempt(attempt + 1)}><RotateCw size={15} />Try again</button>}>
+        {error}
+      </State>
+    );
   }
-  if (!stats) return <Loading />;
+  if (!stats || !previous) return <Loading />;
 
   const t = stats.totals;
-  const days = fillDays(stats);
-  const share = (n: number) => (t.total ? `${pct(n, t.total).toFixed(1)}% of requests` : "No requests");
+  const p = previous.totals;
+  const buckets = fillBuckets(stats);
+  const period = `previous ${range.label}`;
+  const events = (params: Params) => href("events", { range: rangeParam, ...params });
 
   return (
-    // while reloading, keep the previous numbers on screen instead of flashing a placeholder
-    <div className={loading ? "stack reloading" : "stack"}>
+    // Keep the previous numbers on screen while reloading. Live ticks do not even dim them.
+    <div className={loading && !range.quiet ? "stack reloading" : "stack"}>
       <div className="kpis">
-        <Kpi i={0} status="total" label={<><Activity size={16} />Total requests</>} value={t.total}
-          note={`${days.length} ${days.length === 1 ? "day" : "days"} in range`}
-          trend={days.map((d) => d.allowed + d.flagged + d.blocked)} />
+        <Kpi i={0} status="total" label={<><Activity size={16} />Total requests</>}
+          value={t.total} previous={p.total} period={period}
+          trend={buckets.map((b) => b.allowed + b.flagged + b.blocked)} to={events({})} />
         {OUTCOMES.map((o, i) => (
           <Kpi key={o.key} i={i + 1} status={o.key}
             label={<><OutcomeIcon outcome={o.key} />{o.label}</>}
-            value={t[o.key]} note={share(t[o.key])} trend={days.map((d) => d[o.key])} />
+            value={t[o.key]} previous={p[o.key]} period={period}
+            trend={buckets.map((b) => b[o.key])} to={events({ outcome: o.value })} />
         ))}
       </div>
 
       <div className="main-grid">
         <div className="rise" style={stagger(4)}>
-          <OutcomeChart days={days} />
+          {/* re-keyed when the unit changes so the columns animate in again */}
+          <OutcomeChart key={stats.bucket} buckets={buckets} unit={stats.bucket}
+            onSelect={(b) => {
+              window.location.hash = events({
+                from: b.start,
+                to: bucketStart(Date.parse(b.start) + STEP_MS[stats.bucket]),
+              });
+            }} />
         </div>
 
         <section className="card rise" style={stagger(5)}>
@@ -180,16 +209,19 @@ export function Overview({ range }: { range: TimeRange }) {
           title="Top reasons"
           sub="Why requests were flagged or blocked"
           empty="No flagged or blocked requests in this period."
-          rows={stats.topReasons.map((r) => ({ label: r.reasonCode, value: r.count }))}
+          rows={stats.topReasons.map((r) => ({
+            label: r.reasonCode, value: r.count, to: events({ reason: r.reasonCode }),
+          }))}
         />
         <BarList i={7}
           title="Callers with the most blocked requests"
           sub="Blocked requests out of all the caller sent"
           empty="No requests in this period."
-          rows={stats.topPrincipals.map((p) => ({
-            label: p.principalId ?? "unknown",
-            value: p.blocked,
-            note: `of ${p.total.toLocaleString("en-US")}`,
+          rows={stats.topPrincipals.map((c) => ({
+            label: c.principalId ?? "unknown",
+            value: c.blocked,
+            note: `of ${c.total.toLocaleString("en-US")}`,
+            to: events({ caller: c.principalId, outcome: "BLOCKED" }),
           }))}
         />
       </div>
