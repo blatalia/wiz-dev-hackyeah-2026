@@ -33,6 +33,10 @@ TOOLS = {
 GATEWAY_DECISION: TypeAlias = Literal["ALLOW", "REJECT"]
 
 
+def _field(value: Any, name: str) -> Any:
+    return value.get(name) if isinstance(value, dict) else getattr(value, name)
+
+
 def initial_input_check(user_input: str) -> GATEWAY_DECISION:
     """Check incoming content, including potential prompt injection."""
     result = inference.judge_user_input(user_input)
@@ -107,11 +111,14 @@ def send_input_to_llm(
         ],
         tools=tools if allow_tools else None,
     )
-    message = response.choices[0].message
+    message = _field(_field(response, "choices")[0], "message")
     return json.dumps(
         {
-            "text": message.content or "",
-            "tools": [call.function.name for call in (message.tool_calls or [])],
+            "text": _field(message, "content") or "",
+            "tools": [
+                _field(_field(call, "function"), "name")
+                for call in (_field(message, "tool_calls") or [])
+            ],
         },
         ensure_ascii=False,
     )
@@ -167,7 +174,7 @@ def send_tool_results_to_llm(
             },
         ]
     )
-    return response.choices[0].message.content or ""
+    return _field(_field(_field(response, "choices")[0], "message"), "content") or ""
 
 
 def process_request(user_id: str, user_input: str) -> str:
