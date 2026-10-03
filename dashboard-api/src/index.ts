@@ -23,7 +23,6 @@ app.use("/auth", authRouter);
 app.use("/events", requireAuth, requireRole("admin"), eventsRouter);
 app.use("/config", requireAuth, requireRole("admin"), configRouter);
 
-// Тестовий захищений ендпоінт
 app.get("/admin/ping", requireAuth, requireRole("admin"), (req, res) => {
   res.json({ message: `Hello, ${req.user?.email}` });
 });

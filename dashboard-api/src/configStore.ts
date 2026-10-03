@@ -1,17 +1,13 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 
-// Конфіг gateway: один запис з набором перемикачів (true/false).
 export type GatewayConfig = { configId: string; flags: Record<string, boolean> };
 
 export interface ConfigStore {
   getConfig(configId: string): Promise<GatewayConfig | null>;
-  // Міняє тільки передані перемикачі, решту запису не чіпає.
-  // null = запису немає або в ньому немає такого перемикача.
   setFlags(configId: string, flags: Record<string, boolean>): Promise<GatewayConfig | null>;
 }
 
-// Таблиця gateway в AWS: ключ configId, перемикачі лежать як булеві атрибути запису
 export class DynamoConfigStore implements ConfigStore {
   private doc = DynamoDBDocumentClient.from(
     new DynamoDBClient({ endpoint: process.env.DYNAMODB_ENDPOINT || undefined }));
@@ -46,7 +42,6 @@ export class DynamoConfigStore implements ConfigStore {
         TableName: this.table,
         Key: { configId },
         UpdateExpression: "SET " + keys.map((_, i) => `#f${i} = :v${i}`).join(", "),
-        // не створюємо ні новий запис, ні нові атрибути: тільки те, що gateway вже знає
         ConditionExpression: keys.map((_, i) => `attribute_exists(#f${i})`).join(" AND "),
         ExpressionAttributeNames: names,
         ExpressionAttributeValues: values,

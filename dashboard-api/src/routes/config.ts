@@ -1,7 +1,6 @@
 import { Router } from "express";
 import { DynamoConfigStore, type ConfigStore } from "../configStore";
 
-// Конфіг gateway живе тільки в його таблиці DynamoDB в AWS
 const store: ConfigStore = new DynamoConfigStore();
 const CONFIG_ID = process.env.CONFIG_ID || "default";
 

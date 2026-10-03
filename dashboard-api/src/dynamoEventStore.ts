@@ -5,23 +5,17 @@ import {
   type EventFilters, type EventStats, type EventStore, type EventSummary,
 } from "./eventStore";
 
-// Схема таблиці, під яку написаний цей клас (за прикладом події від gateway):
-//   pk = "DAY#2026-10-03"                    (partition key)
-//   sk = "2026-10-03T16:48:00.494Z#req_..."  (sort key: час + requestId)
-// Якщо gateway-команда обере інші назви ключів, міняти треба тільки ці константи.
 const PK = "pk";
 const SK = "sk";
 const DAY_PREFIX = "DAY#";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-// Якщо 'from' не передали, шукаємо не глибше ніж на стільки днів (події живуть 90 днів через expiresAt).
 const MAX_LOOKBACK_DAYS = 90;
 
 type Item = Record<string, any>;
 
 const dayOf = (iso: string) => iso.slice(0, 10);
 
-// Дні від новішого до старішого, включно з обома
 function daysDesc(newest: string, oldest: string): string[] {
   const days: string[] = [];
   for (let t = Date.parse(newest); t >= Date.parse(oldest); t -= DAY_MS) {
@@ -44,7 +38,6 @@ function toSummary(e: Item): EventSummary {
   };
 }
 
-// Те саме, що percentile_cont у Postgres: лінійна інтерполяція між сусідніми значеннями
 function percentile(sortedAsc: number[], p: number): number | null {
   if (sortedAsc.length === 0) return null;
   const pos = p * (sortedAsc.length - 1);
@@ -57,10 +50,8 @@ export class DynamoEventStore implements EventStore {
   private doc = DynamoDBDocumentClient.from(
     new DynamoDBClient({ endpoint: process.env.DYNAMODB_ENDPOINT || undefined }));
   private table = process.env.EVENTS_TABLE || "ai-gateway-request-events";
-  // Назва GSI з ключем requestId. Без нього getEvent перебирає всю таблицю.
   private requestIdIndex = process.env.EVENTS_REQUEST_ID_INDEX || undefined;
 
-  // Події одного дня в проміжку sk [lo, hi], від найновішої. Викликає onItem, доки той не поверне false.
   private async queryDay(
     day: string, lo: string, hi: string,
     filter: { expression?: string; names: Record<string, string>; values: Record<string, unknown> },
@@ -89,7 +80,6 @@ export class DynamoEventStore implements EventStore {
   }
 
   async listEvents(f: EventFilters) {
-    // Фільтри за полями, для яких немає ключа: DynamoDB читає події дня і відкидає зайві
     const names: Record<string, string> = {};
     const values: Record<string, unknown> = {};
     const conditions: string[] = [];
@@ -108,7 +98,6 @@ export class DynamoEventStore implements EventStore {
     const c = f.cursor ? decodeCursor(f.cursor) : null;
     const cursorSk = c ? `${c.ts}#${c.id}` : null;
     const fromIso = f.from?.toISOString();
-    // Верхня межа: курсор (якщо є) або 'to'. sk завжди довший за голий час, тому 'to' не включається.
     const upper = cursorSk ?? f.to?.toISOString();
 
     const newestDay = dayOf(upper ?? new Date().toISOString());
@@ -120,7 +109,6 @@ export class DynamoEventStore implements EventStore {
     for (const day of daysDesc(newestDay, oldestDay)) {
       const lo = fromIso && dayOf(fromIso) === day ? fromIso : day;
       const hi = upper && dayOf(upper) === day ? upper : `${day}~`;
-      // +1, щоб знати, чи є наступна сторінка, і ще +1 на запис самого курсора
       const pageLimit = filter.expression ? undefined : f.limit + 2 - found.length;
       const more = await this.queryDay(day, lo, hi, filter, pageLimit, (item) => {
         if (item[SK] !== cursorSk) found.push(item);
@@ -165,7 +153,6 @@ export class DynamoEventStore implements EventStore {
     return null;
   }
 
-  // DynamoDB не вміє GROUP BY, тому читаємо всі події проміжку і рахуємо тут
   async getStats(from: Date, to: Date): Promise<EventStats> {
     const fromIso = from.toISOString();
     const toIso = to.toISOString();
