@@ -1,6 +1,5 @@
-﻿deal_id,period,customer_id,customer_name,contact_name,contact_email,bank_account_test,revenue_pln,gross_margin
-PROJECT_BALTIC,2025,C014,Baltic Machinery,Piotr Zielinski,piotr.zielinski@baltic-machinery.example,TEST-ACCOUNT-C014-NOT-VALID,26400000,0.24
-PROJECT_BALTIC,2025,C021,Rhein Industrial,Eva Muller,eva.muller@rhein-industrial.example,TEST-ACCOUNT-C021-NOT-VALID,21600000,0.22
-PROJECT_BALTIC,2025,C032,Silesia Automation,Maria Wojcik,maria.wojcik@silesia-automation.example,TEST-ACCOUNT-C032-NOT-VALID,18000000,0.2
-PROJECT_BALTIC,2025,C045,Alpine Systems,Lukas Berger,lukas.berger@alpine-systems.example,TEST-ACCOUNT-C045-NOT-VALID,12000000,0.25
-PROJECT_BALTIC,2025,OTHER,Other customers aggregate,,,TEST-ACCOUNT-OTHER-NOT-VALID,42000000,0.21
+﻿deal_id,period,customer_id,contact_name,bank_account_test,revenue_pln,gross_margin
+PROJECT_BALTIC,2025,C014,TEST-ACCOUNT-C014-NOT-VALID,26400000,0.24
+PROJECT_BALTIC,2025,C021,TEST-ACCOUNT-C021-NOT-VALID,21600000,0.22
+PROJECT_BALTIC,2025,C032,TEST-ACCOUNT-C032-NOT-VALID,18000000,0.2
+PROJECT_BALTIC,2025,C045,TEST-ACCOUNT-C045-NOT-VALID,12000000,0.25
