@@ -143,7 +143,7 @@ class PIIDetector:
 
 
 if __name__ == "__main__":
-    text = "My name is Sarah Jessica Parker. I am conducting a merger of RolloCorp with BalticInc. I'll email john.pork@gmail.com and contact Eva Muller. My home address is 123 Main St, Anytown, USA. The bank account in question is PL50558984522137676769694200."
+    text = "My name is Sarah Jessica Parker. I am conducting a merger of RheinIndustrial with BalticInc. I'll email john.pork@gmail.com and contact Eva Muller. My home address is 123 Main St, Anytown, USA. The bank account in question is PL50558984522137676769694200."
     detector = PIIDetector()
     print(detector.detect_json(text, indent=2))
 
