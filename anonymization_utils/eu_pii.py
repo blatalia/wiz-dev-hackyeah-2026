@@ -6,7 +6,7 @@ import torch
 import yaml
 from dotenv import load_dotenv
 from huggingface_hub import InferenceClient
-from transformers import AutoModelForTokenClassification, AutoTokenizer
+from transformers import AutoModelForTokenClassification, AutoTokenizer, BitsAndBytesConfig
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "pii_config.yml"
 
@@ -69,7 +69,10 @@ class PIIDetector:
         load_dotenv()
         self.ner_model_name = ner_model_name
         self.tokenizer = AutoTokenizer.from_pretrained(pii_model_name)
-        self.model = AutoModelForTokenClassification.from_pretrained(pii_model_name)
+        quantization_config = BitsAndBytesConfig(load_in_4bit=True)
+        self.model = AutoModelForTokenClassification.from_pretrained(
+            pii_model_name, quantization_config=quantization_config, device_map="auto"
+        )
         self.client = InferenceClient(provider="hf-inference", api_key=api_key or os.getenv("API_KEY"))
         self.pii_to_anonymize = load_pii_to_anonymize(config_path)
 
@@ -142,8 +145,8 @@ class PIIDetector:
         return json.dumps(self.detect(text), **json_kwargs)
 
 
-# if __name__ == "__main__":
-#     text = "My name is Sarah Jessica Parker. I am conducting a merger of Rhein Industrial with BalticInc. I'll email john.pork@gmail.com and contact Eva Muller. My home address is 123 Main St, Anytown, USA. The bank account in question is PL50558984522137676769694200."
-#     detector = PIIDetector()
-#     print(detector.detect_json(text, indent=2))
+if __name__ == "__main__":
+    text = "My name is Sarah Jessica Parker. I am conducting a merger of Rhein Industrial with BalticInc. I'll email john.pork@gmail.com and contact Eva Muller. My home address is 123 Main St, Anytown, USA. The bank account in question is PL50558984522137676769694200."
+    detector = PIIDetector()
+    print(detector.detect_json(text, indent=2))
 
