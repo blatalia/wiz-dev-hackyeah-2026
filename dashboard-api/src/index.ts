@@ -4,6 +4,7 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import { pool } from "./db";
 import { authRouter } from "./routes/auth";
+import { eventsRouter } from "./routes/events";
 import { requireAuth, requireRole } from "./middleware/requireAuth";
 
 const app = express();
@@ -18,6 +19,7 @@ app.get("/health", async (_req, res) => {
 });
 
 app.use("/auth", authRouter);
+app.use("/events", requireAuth, requireRole("admin"), eventsRouter);
 
 // Тестовий захищений ендпоінт
 app.get("/admin/ping", requireAuth, requireRole("admin"), (req, res) => {
