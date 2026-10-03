@@ -21,7 +21,6 @@ services:
     env_file: ./dashboard-api/.env
     environment:
       PORT: 3000
-      # Inside the compose network the database is reachable as "postgres", not localhost.
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     ports:
       - "${API_PORT:-3000}:3000"
@@ -39,7 +38,6 @@ services:
         VITE_API_URL: ${VITE_API_URL:-http://localhost:3000}
     container_name: dashboard-ui
     restart: unless-stopped
-    # Must stay on the origin the API allows in CORS_ORIGIN (dashboard-api/.env).
     ports:
       - "5173:80"
     depends_on:

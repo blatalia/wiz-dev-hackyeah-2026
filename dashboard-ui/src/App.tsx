@@ -20,24 +20,22 @@ const RANGES = [
 const VIEWS = [
   { id: "overview", label: "Overview", Icon: LayoutDashboard, sub: "Traffic and guardrail decisions across the gateway" },
   { id: "events", label: "Events", Icon: ListFilter, sub: "Every request the gateway has processed" },
-  { id: "config", label: "Config", Icon: SlidersHorizontal, sub: "Switch gateway checks on or off" },
+  { id: "config", label: "Config", Icon: SlidersHorizontal, sub: "Gateway settings, read live from its configuration table" },
 ] as const;
 
 type RangeId = (typeof RANGES)[number]["value"];
 type Theme = "dark" | "light";
 
-// quiet = this range came from a background live tick, so views update in place
 export type TimeRange = { id: RangeId; label: string; from: string; to: string; quiet: boolean };
 
 function stored(key: string) {
   try { return localStorage.getItem(key); } catch { return null; }
 }
 function store(key: string, value: string) {
-  try { localStorage.setItem(key, value); } catch { /* storage unavailable: keep the choice for this visit */ }
+  try { localStorage.setItem(key, value); } catch {}
 }
 
 export function App() {
-  // undefined = still checking the session, null = not logged in
   const [user, setUser] = useState<User | null | undefined>(undefined);
   const [route, go] = useRoute();
   const [clock, setClock] = useState(() => ({ at: Date.now(), quiet: false, manual: 0 }));
@@ -61,7 +59,6 @@ export function App() {
     store("live", live ? "on" : "off");
     if (!live || !user) return;
     const timer = setInterval(() => {
-      // a hidden tab has nobody watching, so skip the request
       if (!document.hidden) setClock((c) => ({ at: Date.now(), quiet: true, manual: c.manual }));
     }, LIVE_INTERVAL_MS);
     return () => clearInterval(timer);
@@ -79,7 +76,6 @@ export function App() {
   if (user === null) return <Login onLogin={(u) => { setClock({ at: Date.now(), quiet: false, manual: 0 }); setUser(u); }} />;
 
   const current = VIEWS.find((v) => v.id === view)!;
-  // the period travels with every link; the default one is left out of the URL
   const rangeParam = rangeDef.value === "7d" ? undefined : rangeDef.value;
   const refresh = () => setClock((c) => ({ at: Date.now(), quiet: false, manual: c.manual + 1 }));
 
@@ -119,14 +115,12 @@ export function App() {
 
       <div className="content">
         <header className="page-head">
-          {/* keyed so the heading animates in when the view changes */}
           <div key={view} className="rise">
             <h1 className="page-title">{current.label}</h1>
             <p className="page-sub">{current.sub}</p>
           </div>
           <div className="spacer" />
           <div className="toolbar">
-            {/* the period only scopes event data, so it is hidden on the config view */}
             {view !== "config" && (
               <>
                 <button className={live ? "btn live on" : "btn live"} aria-pressed={live}
@@ -144,7 +138,6 @@ export function App() {
                     go(view, { ...route.params, range: id === "7d" ? undefined : id });
                   }} />
                 <button className="btn icon" aria-label="Refresh data" title="Refresh data" onClick={refresh}>
-                  {/* re-keyed on manual refresh only, so live ticks do not spin it */}
                   <RotateCw key={clock.manual} className="spin-once" size={16} />
                 </button>
               </>

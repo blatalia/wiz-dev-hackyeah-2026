@@ -7,11 +7,10 @@ import { stagger } from "./ui";
 const HEIGHT = 300;
 const M = { top: 12, right: 8, bottom: 28, left: 44 };
 const MAX_BAR = 24;
-const GAP = 2; // surface gap between stacked segments
+const GAP = 2;
 const RADIUS = 4;
 const TOOLTIP_W = 184;
 
-// Days are UTC buckets; hours are shown in the viewer's local time, like the events table.
 function axisLabel(start: string, unit: StatsBucket) {
   const d = new Date(start);
   return unit === "hour"
@@ -27,7 +26,6 @@ export function bucketLabel(start: string, unit: StatsBucket) {
   return `${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${time(d)}–${time(end)}`;
 }
 
-// Round axis steps: 1, 2, 5, 10, 20, 50, ...
 function niceStep(max: number, ticks: number) {
   const rough = Math.max(max, 1) / ticks;
   const pow = 10 ** Math.floor(Math.log10(rough));
@@ -48,7 +46,6 @@ function useWidth() {
   return [ref, width] as const;
 }
 
-// Column segment with a rounded data-end, square at the bottom
 function topRounded(x: number, y: number, w: number, h: number) {
   const r = Math.min(RADIUS, h, w / 2);
   return `M${x},${y + h} V${y + r} Q${x},${y} ${x + r},${y} H${x + w - r} Q${x + w},${y} ${x + w},${y + r} V${y + h} Z`;
@@ -143,13 +140,11 @@ export function OutcomeChart({ buckets, unit, onSelect }: {
                   <g key={b.start} className={active !== null && active !== i ? "dim" : undefined}>
                     <rect className={active === i ? "band on" : "band"} rx={8}
                       x={M.left + band * i + 1} y={M.top} width={Math.max(band - 2, 0)} height={plotH} />
-                    {/* columns grow up from the baseline, one after another */}
                     <g className="col" style={{ ...stagger(Math.min(i, 20)), transformOrigin: `0px ${y(0)}px` }}>
                       {segments.map((s, si) => {
                         const bottom = y(below);
                         below += s.value;
                         const top = y(below);
-                        // every segment above the first gives up GAP px so the surface shows through
                         const h = Math.max(bottom - top - (si > 0 ? GAP : 0), 1);
                         const isTop = si === segments.length - 1;
                         return isTop
@@ -160,7 +155,6 @@ export function OutcomeChart({ buckets, unit, onSelect }: {
                     {i % labelEvery === 0 && (
                       <text className="tick" x={x + barW / 2} y={HEIGHT - 8} textAnchor="middle">{axisLabel(b.start, unit)}</text>
                     )}
-                    {/* hit target is the whole band, not just the painted column */}
                     <rect
                       className="hit" x={M.left + band * i} y={M.top} width={band} height={plotH}
                       tabIndex={0} role="link"
@@ -184,7 +178,6 @@ export function OutcomeChart({ buckets, unit, onSelect }: {
               className="tooltip"
               style={{
                 width: TOOLTIP_W,
-                // beside the column, flipped to the left when it would run off the edge
                 left: activeX + barW / 2 + 14 + TOOLTIP_W <= width
                   ? activeX + barW / 2 + 14
                   : Math.max(activeX - barW / 2 - 14 - TOOLTIP_W, 0),

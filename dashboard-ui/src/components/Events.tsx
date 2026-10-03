@@ -21,7 +21,6 @@ function formatWindow(from: string, to: string) {
   const a = new Date(from), b = new Date(to);
   const date = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   const time = (d: Date) => d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-  // a whole UTC day (from the daily chart) reads better as just the date
   if (b.getTime() - a.getTime() === 24 * 60 * 60 * 1000 && from.slice(11, 19) === "00:00:00") {
     return a.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }) + " (UTC)";
   }
@@ -35,12 +34,10 @@ export function Events({ range, params, setParams }: {
   params: Record<string, string>;
   setParams: (patch: Params) => void;
 }) {
-  // Filters live in the URL so they survive reload and the back button.
   const outcome = params.outcome ?? "";
   const severity = params.severity ?? "";
   const caller = params.caller ?? "";
   const reason = params.reason ?? "";
-  // a time window picked on the overview chart narrows the global period
   const hasWindow = isDate(params.from) && isDate(params.to);
   const from = hasWindow ? params.from : range.from;
   const to = hasWindow ? params.to : range.to;
@@ -67,8 +64,6 @@ export function Events({ range, params, setParams }: {
 
   useEffect(() => {
     let stale = false;
-    // A live tick with unchanged filters only adds the rows that arrived since the last load,
-    // so pages the reader has already loaded stay where they are.
     const liveTick = range.quiet && loadedKey.current === filterKey;
     if (!liveTick) setLoading(true);
     getEvents(query)
@@ -195,7 +190,6 @@ export function Events({ range, params, setParams }: {
                   <tr
                     key={e.requestId}
                     className={`row${params.event === e.requestId ? " selected" : ""}${fresh.has(e.requestId) ? " fresh" : ""}`}
-                    // only the first page staggers in; later pages just fade
                     style={stagger(i < PAGE_SIZE ? i : 0)}
                     tabIndex={0}
                     onClick={() => setParams({ event: e.requestId })}

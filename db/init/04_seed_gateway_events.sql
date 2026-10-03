@@ -1,7 +1,3 @@
--- 2100 fake gateway events over the last 30 days:
--- roughly 70% ALLOWED, 15% FLAGGED, 15% BLOCKED.
--- FLAGGED and the threat categories are assumptions until the gateway team
--- confirms the real outcome / reasonCode values.
 WITH base AS (
   SELECT
     i,

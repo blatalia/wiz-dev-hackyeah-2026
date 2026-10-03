@@ -11,7 +11,6 @@ const STEP_MS: Record<StatsBucket, number> = { hour: 60 * 60 * 1000, day: 24 * 6
 
 const bucketStart = (ms: number) => new Date(ms).toISOString().slice(0, 19) + "Z";
 
-// The API only returns buckets that have events; add the empty ones so the axis has no holes.
 function fillBuckets(stats: EventStats): BucketCounts[] {
   const step = STEP_MS[stats.bucket];
   const known = new Map(stats.series.map((b) => [b.start, b]));
@@ -103,7 +102,6 @@ export function Overview({ range, rangeParam }: { range: TimeRange; rangeParam: 
     const previousFrom = new Date(Date.parse(range.from) - span).toISOString();
     Promise.all([
       getStats(range.from, range.to, range.id === "24h" ? "hour" : "day"),
-      // same-length window right before this one, for the "vs previous" figures
       getStats(previousFrom, range.from),
     ])
       .then(([now, before]) => { if (!stale) { setStats(now); setPrevious(before); setError(null); } })
@@ -129,7 +127,6 @@ export function Overview({ range, rangeParam }: { range: TimeRange; rangeParam: 
   const events = (params: Params) => href("events", { range: rangeParam, ...params });
 
   return (
-    // Keep the previous numbers on screen while reloading. Live ticks do not even dim them.
     <div className={loading && !range.quiet ? "stack reloading" : "stack"}>
       <div className="kpis">
         <Kpi i={0} status="total" label={<><Activity size={16} />Total requests</>}
@@ -145,7 +142,6 @@ export function Overview({ range, rangeParam }: { range: TimeRange; rangeParam: 
 
       <div className="main-grid">
         <div className="rise" style={stagger(4)}>
-          {/* re-keyed when the unit changes so the columns animate in again */}
           <OutcomeChart key={stats.bucket} buckets={buckets} unit={stats.bucket}
             onSelect={(b) => {
               window.location.hash = events({

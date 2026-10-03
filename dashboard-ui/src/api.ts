@@ -18,7 +18,6 @@ export type EventPage = { items: EventSummary[]; nextCursor: string | null };
 
 export type StatsBucket = "day" | "hour";
 
-// start is the first instant of the bucket, e.g. "2026-10-03T14:00:00Z"
 export type BucketCounts = { start: string; allowed: number; flagged: number; blocked: number };
 
 export type EventStats = {
@@ -33,7 +32,11 @@ export type EventStats = {
   topPrincipals: { principalId: string; total: number; blocked: number }[];
 };
 
-export type GatewayConfig = { configId: string; flags: Record<string, boolean> };
+export type SettingValue = boolean | number;
+export type ConfigSetting = { key: string; value: SettingValue };
+export type ConfigGroup = { key: string; settings: ConfigSetting[] };
+export type GatewayConfig = { configId: string; groups: ConfigGroup[] };
+export type ConfigChange = { group: string; key: string; value: SettingValue };
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -46,12 +49,10 @@ export function setSessionExpiredHandler(handler: () => void) {
   onSessionExpired = handler;
 }
 
-// Cookies are httpOnly, so the browser sends them itself; we only have to ask for it.
 function send(path: string, init?: RequestInit) {
   return fetch(API_URL + path, { credentials: "include", ...init });
 }
 
-// One refresh at a time: the refresh token is rotated, so parallel refreshes would fail.
 let refreshing: Promise<boolean> | null = null;
 function refreshSession() {
   refreshing ??= send("/auth/refresh", { method: "POST" })
@@ -119,7 +120,6 @@ export function getEvents(query: EventQuery) {
 }
 
 export function getEvent(requestId: string) {
-  // the gateway's event format is still settling, so the detail view reads it defensively
   return request<Record<string, any>>("/events/" + encodeURIComponent(requestId));
 }
 
@@ -131,10 +131,10 @@ export function getConfig() {
   return request<GatewayConfig>("/config");
 }
 
-export function updateConfig(flags: Record<string, boolean>) {
+export function updateConfig(changes: ConfigChange[]) {
   return request<GatewayConfig>("/config", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ flags }),
+    body: JSON.stringify({ changes }),
   });
 }
