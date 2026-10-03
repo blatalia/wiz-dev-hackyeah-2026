@@ -1,6 +1,7 @@
 import importlib
 import inspect
 import json
+import os
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -28,6 +29,27 @@ class GuardrailsTests(unittest.TestCase):
         }
         with patch.dict("sys.modules", modules):
             cls.guardrails = importlib.import_module("gateway.guardrails.guardrails")
+
+    def test_missing_mga_token_does_not_fall_back_to_another_api_key(self):
+        inference = self.guardrails.inference
+        with (
+            patch.dict(os.environ, {"OPENAI_API_KEY": "unrelated-test-key"}, clear=True),
+            patch.object(inference, "OpenAI") as client,
+        ):
+            with self.assertRaises(inference.LLMConfigurationError):
+                inference.get_mga_client()
+            client.assert_not_called()
+
+    def test_mga_client_uses_explicit_environment_token(self):
+        inference = self.guardrails.inference
+        with (
+            patch.dict(os.environ, {"MGA_TOKEN": "test-token"}, clear=True),
+            patch.object(inference, "OpenAI") as client,
+        ):
+            inference.get_mga_client()
+            client.assert_called_once_with(
+                api_key="test-token", base_url="https://chat.int.bayer.com/api/v2"
+            )
 
     def test_input_check_allows_only_explicit_safe_result(self):
         for result, expected in (
