@@ -3,8 +3,12 @@
 import importlib.util
 import inspect
 import json
+import logging
+import os
 import time
+import uuid
 from collections import deque
+from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
 from typing import Any, Literal, TypeAlias
@@ -99,17 +103,21 @@ def _record_llm_output_check(allowed: bool, reason: Any = None) -> None:
 def _timed_chat_completion(**kwargs):
     """Call the LLM, recording output count and latency (or an erroneous output)."""
     global total_llm_outputs, total_llm_latency_seconds, total_llm_calls_timed
+    timestamp = _now()
     started = time.perf_counter()
     try:
         response = inference.chat_completion(**kwargs)
     except Exception as exc:
         _record_llm_output_check(False, type(exc).__name__)
+        _log_event("llm_call", timestamp, started, False, type(exc).__name__, cost=None)
         raise
     elapsed = time.perf_counter() - started
     with _metrics_lock:
         total_llm_outputs += 1
         total_llm_latency_seconds += elapsed
         total_llm_calls_timed += 1
+    _record_llm_output_check(True)
+    _log_event("llm_call", timestamp, started, True, None, cost=_field(response, "cost"))
     return response
 
 
@@ -132,17 +140,63 @@ def get_metrics() -> dict[str, Any]:
         }
 
 
+LOG_DIR = Path(os.environ.get("GATEWAY_LOG_DIR", Path(__file__).resolve().parents[1] / "logs"))
+METRICS_LOG_PATH = LOG_DIR / "metrics.json"
+EVENTS_LOG_PATH = LOG_DIR / "events.jsonl"
+_log_lock = Lock()
+logger = logging.getLogger(__name__)
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _log_event(
+    event_type: str,
+    timestamp: str,
+    started: float,
+    is_safe: bool,
+    reason: Any,
+    **extra: Any,
+) -> None:
+    """Append one event to the events log and rewrite the aggregated metrics file."""
+    event = {
+        "event_id": str(uuid.uuid4()),
+        "event_type": event_type,
+        "timestamp": timestamp,
+        "processing_time_seconds": time.perf_counter() - started,
+        "is_safe": is_safe,
+        "reason": None if is_safe else str(reason or "unspecified"),
+        **extra,
+    }
+    metrics = get_metrics()
+    try:
+        with _log_lock:
+            LOG_DIR.mkdir(parents=True, exist_ok=True)
+            with EVENTS_LOG_PATH.open("a", encoding="utf-8") as events_file:
+                events_file.write(json.dumps(event, ensure_ascii=False) + "\n")
+            tmp_path = METRICS_LOG_PATH.with_suffix(".json.tmp")
+            tmp_path.write_text(json.dumps(metrics, indent=2, ensure_ascii=False), encoding="utf-8")
+            tmp_path.replace(METRICS_LOG_PATH)
+    except OSError as exc:
+        logger.warning("Could not write gateway logs: %s", type(exc).__name__)
+
+
 def initial_input_check(user_input: str) -> GATEWAY_DECISION:
     """Check incoming content, including potential prompt injection."""
+    timestamp = _now()
+    started = time.perf_counter()
     try:
         result = inference.judge_user_input(user_input)
     except Exception as exc:
         _record_user_input(False, type(exc).__name__)
+        _log_event("user_input", timestamp, started, False, type(exc).__name__)
         raise
     _record_usage(result)
-    allowed = result.get("is_safe") is True
-    _record_user_input(allowed, result.get("reason"))
-    return "ALLOW" if allowed else "REJECT"
+    is_safe = result.get("is_safe") is True
+    _record_user_input(is_safe, result.get("reason"))
+    _log_event("user_input", timestamp, started, is_safe, result.get("reason"))
+    return "ALLOW" if is_safe else "REJECT"
 
 
 def _history_messages(history: list[dict[str, Any]] | None) -> list[dict[str, str]]:
