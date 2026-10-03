@@ -1,0 +1,5 @@
+﻿employee_id,name,role,annual_employer_cost_pln,sensitive_note
+E001,Marta Lis,Production Director,360000,Key employee
+E002,Tomasz Krol,Sales Director,300000,Retention terms require review
+E003,Ewa Mazur,Process Engineer,180000,SYNTHETIC HEALTH DATA: medical leave; exclude from general analysis
+OTHER,Aggregate other employees,117 employees,11160000,
