@@ -29,7 +29,17 @@ eventsRouter.get("/stats", async (req, res) => {
     res.status(400).json({ error: "'from' must be earlier than 'to'" });
     return;
   }
-  res.json(await store.getStats(from, to));
+  const bucket = str(req.query.bucket) ?? "day";
+  if (bucket !== "day" && bucket !== "hour") {
+    res.status(400).json({ error: "'bucket' must be 'day' or 'hour'" });
+    return;
+  }
+  // hourly buckets over a long range would return thousands of points
+  if (bucket === "hour" && to.getTime() - from.getTime() > 3 * DAY_MS) {
+    res.status(400).json({ error: "'bucket=hour' supports ranges up to 3 days" });
+    return;
+  }
+  res.json(await store.getStats(from, to, bucket));
 });
 
 // GET /events
@@ -60,6 +70,7 @@ eventsRouter.get("/", async (req, res) => {
   res.json(await store.listEvents({
     from, to, outcome, cursor, limit,
     principalId: str(q.principalId),
+    reasonCode: str(q.reasonCode),
     category: str(q.category),
     severity: str(q.severity)?.toUpperCase(),
   }));

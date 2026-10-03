@@ -5,6 +5,19 @@ import json
 
 load_dotenv()
 
+
+def _request_metrics(response):
+    usage = getattr(response, "usage", None)
+    if usage is None and isinstance(response, dict):
+        usage = response.get("usage")
+    if isinstance(usage, dict):
+        total_tokens = usage.get("total_tokens", 0)
+    else:
+        total_tokens = getattr(usage, "total_tokens", 0)
+    cost = response.get("cost", 0.0) if isinstance(response, dict) else getattr(response, "cost", 0.0)
+    return {"total_tokens": total_tokens or 0, "cost": cost or 0.0}
+
+
 def get_mga_client():
     return OpenAI(
         api_key=os.getenv("MGA_TOKEN"),
@@ -24,7 +37,9 @@ def chat_completion(messages, tools=None, model="gpt-4o"):
         params["tool_choice"] = "auto"
 
     response = client.chat.completions.create(**params)
-    return response
+    payload = response.model_dump()
+    payload.update(_request_metrics(response))
+    return payload
 
 
 def judge_llm_response(content_to_check, model="gpt-4o"):
@@ -65,10 +80,11 @@ Return only a JSON object with exactly two fields: "is_safe" (boolean) and "reas
             messages=messages,
             response_format={"type": "json_object"} 
         )
-        return json.loads(response.choices[0].message.content)
+        result = json.loads(response.choices[0].message.content)
+        return {**result, **_request_metrics(response)}
 
     except Exception as e:
-        return {"is_safe": False, "reason": str(e)}    
+        return {"is_safe": False, "reason": str(e), "total_tokens": 0, "cost": 0.0}
 
 
 def judge_user_input(user_input, model="gpt-4o"):
@@ -106,10 +122,11 @@ This classification does not grant access or establish user authorization."""
             messages=messages,
             response_format={"type": "json_object"}
         )
-        return json.loads(response.choices[0].message.content)
+        result = json.loads(response.choices[0].message.content)
+        return {**result, **_request_metrics(response)}
     
     except Exception as e:
-        return {"is_safe": False, "reason": str(e)}
+        return {"is_safe": False, "reason": str(e), "total_tokens": 0, "cost": 0.0}
 
 
 def judge_tool_calls(tool_calls, model="gpt-4o"):

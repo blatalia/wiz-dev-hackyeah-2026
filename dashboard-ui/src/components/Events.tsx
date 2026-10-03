@@ -1,9 +1,11 @@
-import { useEffect, useState } from "react";
-import { Check, ChevronDown, CircleAlert, Copy, LoaderCircle, Search, X } from "lucide-react";
-import { getEvent, getEvents, type EventSummary } from "../api";
+import { useEffect, useRef, useState } from "react";
+import { CalendarClock, ChevronDown, CloudOff, Hash, Inbox, LoaderCircle, RotateCw, Search, Tag, X } from "lucide-react";
+import { getEvents, type EventSummary } from "../api";
 import type { TimeRange } from "../App";
+import type { Params } from "../route";
+import { EventDetail } from "./EventDetail";
 import { OUTCOMES, OutcomeBadge } from "./OutcomeBadge";
-import { Segmented, highlightJson, stagger } from "./ui";
+import { Segmented, State, stagger } from "./ui";
 
 const PAGE_SIZE = 50;
 const SEVERITIES = ["NONE", "LOW", "MEDIUM", "HIGH", "CRITICAL"];
@@ -15,126 +17,82 @@ function formatTime(iso: string) {
   });
 }
 
-const latency = (ms: number | null) => (ms === null ? "—" : `${ms.toLocaleString("en-US")} ms`);
-
-function Fact({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <div className="fact-label">{label}</div>
-      <div className="fact-value">{children}</div>
-    </div>
-  );
-}
-
-function EventDetail({ summary, onClose }: { summary: EventSummary; onClose: () => void }) {
-  const [json, setJson] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [closing, setClosing] = useState(false);
-  const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    let stale = false;
-    setJson(null);
-    setError(null);
-    getEvent(summary.requestId).then(
-      (e) => { if (!stale) setJson(JSON.stringify(e, null, 2)); },
-      (e) => { if (!stale) setError(e.message); },
-    );
-    return () => { stale = true; };
-  }, [summary.requestId]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setClosing(true); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
-  async function copy() {
-    if (!json) return;
-    try {
-      await navigator.clipboard.writeText(json);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch { /* clipboard unavailable: the JSON is still selectable */ }
+function formatWindow(from: string, to: string) {
+  const a = new Date(from), b = new Date(to);
+  const date = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const time = (d: Date) => d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  // a whole UTC day (from the daily chart) reads better as just the date
+  if (b.getTime() - a.getTime() === 24 * 60 * 60 * 1000 && from.slice(11, 19) === "00:00:00") {
+    return a.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }) + " (UTC)";
   }
-
-  return (
-    <>
-      <div className={closing ? "backdrop closing" : "backdrop"} onClick={() => setClosing(true)} />
-      <aside
-        className={closing ? "drawer closing" : "drawer"} role="dialog" aria-label="Event details"
-        // unmount only after the slide-out animation has finished
-        onAnimationEnd={(e) => { if (closing && e.target === e.currentTarget) onClose(); }}
-      >
-        <div className="drawer-head">
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <OutcomeBadge outcome={summary.outcome} pill />
-            <div className="drawer-title">{summary.requestId}</div>
-          </div>
-          <button className="btn ghost icon" aria-label="Close" onClick={() => setClosing(true)}>
-            <X size={18} />
-          </button>
-        </div>
-
-        <div className="drawer-body">
-          <div className="facts">
-            <Fact label="Time">{formatTime(summary.timestamp)}</Fact>
-            <Fact label="Caller">{summary.principalId ?? "—"}</Fact>
-            <Fact label="Reason">{summary.reasonCode ?? "—"}</Fact>
-            <Fact label="Category">{summary.category ?? "—"}</Fact>
-            <Fact label="Severity">{summary.severity ?? "—"}</Fact>
-            <Fact label="Latency">{latency(summary.latencyMs)}</Fact>
-          </div>
-
-          <div>
-            <div className="section-title">
-              Raw event
-              <button className="btn small ghost" onClick={copy} disabled={!json}>
-                {copied ? <Check size={14} /> : <Copy size={14} />}
-                {copied ? "Copied" : "Copy"}
-              </button>
-            </div>
-            {error && <p className="form-error" role="alert"><CircleAlert size={16} />{error}</p>}
-            {!json && !error && <div className="skeleton" style={{ height: 320 }} />}
-            {json && <pre className="json rise">{highlightJson(json)}</pre>}
-          </div>
-        </div>
-      </aside>
-    </>
-  );
+  return `${date(a)}, ${time(a)}–${time(b)}`;
 }
 
-export function Events({ range }: { range: TimeRange }) {
-  const [outcome, setOutcome] = useState("");
-  const [severity, setSeverity] = useState("");
-  const [principalInput, setPrincipalInput] = useState("");
-  const [principalId, setPrincipalId] = useState("");
+const isDate = (v: string | undefined): v is string => Boolean(v) && !isNaN(Date.parse(v!));
 
+export function Events({ range, params, setParams }: {
+  range: TimeRange;
+  params: Record<string, string>;
+  setParams: (patch: Params) => void;
+}) {
+  // Filters live in the URL so they survive reload and the back button.
+  const outcome = params.outcome ?? "";
+  const severity = params.severity ?? "";
+  const caller = params.caller ?? "";
+  const reason = params.reason ?? "";
+  // a time window picked on the overview chart narrows the global period
+  const hasWindow = isDate(params.from) && isDate(params.to);
+  const from = hasWindow ? params.from : range.from;
+  const to = hasWindow ? params.to : range.to;
+
+  const [callerInput, setCallerInput] = useState(caller);
+  const [idInput, setIdInput] = useState("");
   const [items, setItems] = useState<EventSummary[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<EventSummary | null>(null);
+  const [fresh, setFresh] = useState<Set<string>>(new Set());
+  const [attempt, setAttempt] = useState(0);
 
-  const query = { from: range.from, to: range.to, outcome, severity, principalId, limit: PAGE_SIZE };
-  const filtered = Boolean(outcome || severity || principalId);
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const loadedKey = useRef("");
 
-  // First page: reload whenever the period or a filter changes
+  useEffect(() => setCallerInput(caller), [caller]);
+
+  const query = { from, to, outcome, severity, principalId: caller, reasonCode: reason, limit: PAGE_SIZE };
+  const filterKey = JSON.stringify([range.id, outcome, severity, caller, reason, params.from, params.to, attempt]);
+  const filtered = Boolean(outcome || severity || caller || reason || hasWindow);
+
   useEffect(() => {
     let stale = false;
-    setLoading(true);
+    // A live tick with unchanged filters only adds the rows that arrived since the last load,
+    // so pages the reader has already loaded stay where they are.
+    const liveTick = range.quiet && loadedKey.current === filterKey;
+    if (!liveTick) setLoading(true);
     getEvents(query)
       .then((page) => {
         if (stale) return;
-        setItems(page.items);
-        setNextCursor(page.nextCursor);
+        if (liveTick) {
+          const known = new Set(itemsRef.current.map((e) => e.requestId));
+          const arrived = page.items.filter((e) => !known.has(e.requestId));
+          if (arrived.length > 0) {
+            setItems([...arrived, ...itemsRef.current]);
+            setFresh(new Set(arrived.map((e) => e.requestId)));
+          }
+        } else {
+          setItems(page.items);
+          setNextCursor(page.nextCursor);
+          setFresh(new Set());
+        }
+        loadedKey.current = filterKey;
         setError(null);
       })
-      .catch((e) => { if (!stale) setError(e.message); })
+      .catch((e) => { if (!stale && !liveTick) setError(e.message); })
       .finally(() => { if (!stale) { setLoading(false); setLoaded(true); } });
     return () => { stale = true; };
-  }, [range.from, range.to, outcome, severity, principalId]);
+  }, [from, to, filterKey]);
 
   async function loadMore() {
     if (!nextCursor) return;
@@ -150,40 +108,79 @@ export function Events({ range }: { range: TimeRange }) {
     }
   }
 
+  const clearAll = () => setParams({
+    outcome: undefined, severity: undefined, caller: undefined, reason: undefined, from: undefined, to: undefined,
+  });
+
   return (
     <div className="stack">
-      <form className="filterbar rise" onSubmit={(e) => { e.preventDefault(); setPrincipalId(principalInput.trim()); }}>
+      <div className="filterbar rise">
         <div className="field">
           Outcome
-          <Segmented label="Outcome" options={OUTCOME_OPTIONS} value={outcome} onChange={setOutcome} />
+          <Segmented label="Outcome" options={OUTCOME_OPTIONS} value={outcome}
+            onChange={(v) => setParams({ outcome: v || undefined })} />
         </div>
         <label className="field">
           Severity
-          <select className="input" value={severity} onChange={(e) => setSeverity(e.target.value)}>
+          <select className="input" value={severity} onChange={(e) => setParams({ severity: e.target.value || undefined })}>
             <option value="">All</option>
             {SEVERITIES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </label>
-        <label className="field grow">
-          Caller
+        <form className="field grow" onSubmit={(e) => { e.preventDefault(); setParams({ caller: callerInput.trim() || undefined }); }}>
+          <label htmlFor="caller-filter">Caller</label>
           <span className="input-icon">
             <Search size={15} />
-            <input className="input" placeholder="user_12345, then Enter" value={principalInput}
-              onChange={(e) => setPrincipalInput(e.target.value)} />
+            <input id="caller-filter" className="input" placeholder="user_12345, then Enter" value={callerInput}
+              onChange={(e) => setCallerInput(e.target.value)} />
           </span>
-        </label>
-        {filtered && (
-          <button type="button" className="btn ghost" onClick={() => {
-            setOutcome(""); setSeverity(""); setPrincipalInput(""); setPrincipalId("");
-          }}>
-            <X size={15} />Clear filters
-          </button>
-        )}
-      </form>
+        </form>
+        <form className="field grow" onSubmit={(e) => {
+          e.preventDefault();
+          if (idInput.trim()) { setParams({ event: idInput.trim() }); setIdInput(""); }
+        }}>
+          <label htmlFor="id-search">Open by request ID</label>
+          <span className="input-icon">
+            <Hash size={15} />
+            <input id="id-search" className="input mono" placeholder="req_…, then Enter" value={idInput}
+              onChange={(e) => setIdInput(e.target.value)} />
+          </span>
+        </form>
+      </div>
 
-      {error && <p className="form-error" role="alert"><CircleAlert size={16} />Could not load events: {error}</p>}
+      {(hasWindow || reason || filtered) && (
+        <div className="chips">
+          {hasWindow && (
+            <span className="chip">
+              <CalendarClock size={14} />{formatWindow(from, to)}
+              <button aria-label="Remove time filter" onClick={() => setParams({ from: undefined, to: undefined })}><X size={13} /></button>
+            </span>
+          )}
+          {reason && (
+            <span className="chip">
+              <Tag size={14} />{reason}
+              <button aria-label="Remove reason filter" onClick={() => setParams({ reason: undefined })}><X size={13} /></button>
+            </span>
+          )}
+          {filtered && (
+            <button className="btn small ghost" onClick={clearAll}><X size={14} />Clear all filters</button>
+          )}
+        </div>
+      )}
 
-      {!loaded ? <div className="skeleton" style={{ height: 520 }} /> : (
+      {error ? (
+        <State Icon={CloudOff} tone="error" title="Events could not be loaded"
+          action={<button className="btn" onClick={() => setAttempt(attempt + 1)}><RotateCw size={15} />Try again</button>}>
+          {error}
+        </State>
+      ) : !loaded ? <div className="skeleton" style={{ height: 520 }} /> : items.length === 0 ? (
+        <State Icon={Inbox} title="No events here"
+          action={filtered && <button className="btn" onClick={clearAll}>Clear all filters</button>}>
+          {filtered
+            ? "Nothing matches these filters in the selected period."
+            : "The gateway has not recorded any requests in the selected period."}
+        </State>
+      ) : (
         <section className={`card table-card rise${loading ? " reloading" : ""}`} style={stagger(1)}>
           <div className="table-wrap">
             <table>
@@ -197,12 +194,12 @@ export function Events({ range }: { range: TimeRange }) {
                 {items.map((e, i) => (
                   <tr
                     key={e.requestId}
-                    className={selected?.requestId === e.requestId ? "row selected" : "row"}
+                    className={`row${params.event === e.requestId ? " selected" : ""}${fresh.has(e.requestId) ? " fresh" : ""}`}
                     // only the first page staggers in; later pages just fade
                     style={stagger(i < PAGE_SIZE ? i : 0)}
                     tabIndex={0}
-                    onClick={() => setSelected(e)}
-                    onKeyDown={(k) => { if (k.key === "Enter") setSelected(e); }}
+                    onClick={() => setParams({ event: e.requestId })}
+                    onKeyDown={(k) => { if (k.key === "Enter") setParams({ event: e.requestId }); }}
                   >
                     <td className="nowrap">{formatTime(e.timestamp)}</td>
                     <td className="mono nowrap">{e.requestId}</td>
@@ -210,12 +207,9 @@ export function Events({ range }: { range: TimeRange }) {
                     <td><OutcomeBadge outcome={e.outcome} pill /></td>
                     <td>{e.reasonCode ?? <span className="muted">—</span>}</td>
                     <td>{e.severity ? <span className="tag">{e.severity}</span> : "—"}</td>
-                    <td className="num">{latency(e.latencyMs)}</td>
+                    <td className="num">{e.latencyMs === null ? "—" : `${e.latencyMs.toLocaleString("en-US")} ms`}</td>
                   </tr>
                 ))}
-                {items.length === 0 && (
-                  <tr><td colSpan={7} className="empty">No events match this period and these filters.</td></tr>
-                )}
               </tbody>
             </table>
           </div>
@@ -231,7 +225,7 @@ export function Events({ range }: { range: TimeRange }) {
         </section>
       )}
 
-      {selected && <EventDetail summary={selected} onClose={() => setSelected(null)} />}
+      {params.event && <EventDetail requestId={params.event} onClose={() => setParams({ event: undefined })} />}
     </div>
   );
 }

@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import {
-  ArrowRight, Building2, Check, CircleAlert, Database, Landmark, LoaderCircle, Mail, MapPin, RotateCw,
+  ArrowRight, Building2, Check, CircleAlert, CloudOff, Database, Landmark, LoaderCircle, Mail, MapPin, RotateCw,
   ToggleRight, User, type LucideIcon,
 } from "lucide-react";
 import { getConfig, updateConfig, type GatewayConfig } from "../api";
-import { stagger } from "./ui";
+import { State, stagger } from "./ui";
 
 // Friendly names for the flags we know about; any other flag is shown by its raw key.
 const KNOWN: Record<string, { label: string; Icon: LucideIcon }> = {
@@ -43,9 +43,15 @@ export function Config() {
   }, [toast]);
 
   if (!config) {
-    return error
-      ? <p className="form-error" role="alert"><CircleAlert size={16} />Could not load the configuration: {error}</p>
-      : <div className="skeleton config" style={{ height: 460 }} />;
+    return error ? (
+      <div className="config">
+        <State Icon={CloudOff} tone="error" title="The gateway configuration could not be loaded"
+          action={<button className="btn" onClick={load}><RotateCw size={15} />Try again</button>}>
+          {error}. The configuration lives in the gateway's DynamoDB table, so the API needs the AWS region and
+          credentials in its environment.
+        </State>
+      </div>
+    ) : <div className="skeleton config" style={{ height: 460 }} />;
   }
 
   const keys = Object.keys(config.flags).sort();
