@@ -2,4 +2,5 @@
 Wiz.dev
 
 # wiz-dev-hackyeah-2026
-tbd
+
+See [agent_frontend/README.md](agent_frontend/README.md) for chatbot setup and checks.
