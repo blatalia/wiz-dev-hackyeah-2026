@@ -35,26 +35,31 @@ GATEWAY_DECISION: TypeAlias = Literal["ALLOW", "REJECT"]
 
 
 def _field(value: Any, name: str) -> Any:
-    return value.get(name) if isinstance(value, dict) else getattr(value, name)
+    return value.get(name) if isinstance(value, dict) else getattr(value, name, None)
+
 
 # Process-wide usage across conversations; resets when the process restarts.
 total_tokens_spent = 0
+total_cost_spent = 0.0
 _token_usage_lock = Lock()
 
 
-def _record_token_usage(response) -> None:
-    """Accumulate reported input/output tokens when usage is available."""
-    global total_tokens_spent
-    usage = getattr(response, "usage", None)
-    tokens = getattr(usage, "total_tokens", None)
-    if tokens is not None:
-        with _token_usage_lock:
-            total_tokens_spent += tokens
+def _record_usage(response) -> None:
+    """Accumulate reported tokens and dollar cost from inference results."""
+    global total_tokens_spent, total_cost_spent
+    tokens = _field(response, "total_tokens")
+    if tokens is None:
+        tokens = _field(_field(response, "usage"), "total_tokens")
+    cost = _field(response, "cost")
+    with _token_usage_lock:
+        total_tokens_spent += tokens or 0
+        total_cost_spent += cost or 0.0
 
 
 def initial_input_check(user_input: str) -> GATEWAY_DECISION:
     """Check incoming content, including potential prompt injection."""
     result = inference.judge_user_input(user_input)
+    _record_usage(result)
     return "ALLOW" if result.get("is_safe") is True else "REJECT"
 
 
@@ -126,7 +131,7 @@ def send_input_to_llm(
         ],
         tools=tools if allow_tools else None,
     )
-    _record_token_usage(response)
+    _record_usage(response)
     message = _field(_field(response, "choices")[0], "message")
     return json.dumps(
         {
@@ -190,7 +195,7 @@ def send_tool_results_to_llm(
             },
         ]
     )
-    _record_token_usage(response)
+    _record_usage(response)
     return _field(_field(_field(response, "choices")[0], "message"), "content") or ""
 
 

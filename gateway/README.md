@@ -80,14 +80,14 @@ This uses the existing session history, so refreshing the browser resets the bud
 
 ## Runtime token usage
 
-`gateway.guardrails.guardrails.total_tokens_spent` accumulates the provider's reported
-total input and output tokens for tool selection and summaries. The input-check
-helper returns only a safety verdict, so its usage is not available to this counter.
-The counter is held in memory
-across conversations, resets when the process restarts, and is separate for each
-server worker. Responses without usage information are skipped. It is not included
+`gateway.guardrails.guardrails.total_tokens_spent` and `total_cost_spent` accumulate
+the reported input/output tokens and dollar cost for input checks, tool selection
+and summaries. These counters are held in memory
+across conversations, reset when the process restarts, and are separate for each
+server worker. Missing metrics contribute zero. These totals are not included
 in API responses or displayed in Streamlit.
-The gateway logs `Total tokens spent: <total>` after each processed chat turn.
+The gateway logs `Total tokens spent: <total> | Total cost: $<total>` after each
+processed chat turn.
 
 ## Docker
 
