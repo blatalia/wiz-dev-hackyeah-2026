@@ -1,0 +1,6 @@
+# Send only runtime inputs to the build; .env and virtual environments stay local.
+**
+!Dockerfile
+!.dockerignore
+!requirements.txt
+!main.py
