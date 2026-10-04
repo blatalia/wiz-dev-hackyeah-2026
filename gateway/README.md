@@ -107,7 +107,9 @@ across conversations, reset when the process restarts, and are separate for each
 server worker. Missing metrics contribute zero. These totals are not included
 in API responses or displayed in Streamlit.
 The gateway logs `Total tokens spent: <total> | Total cost: $<total>` after each
-processed chat turn.
+processed chat turn. Detailed per-event metrics (`metrics.json`, `events.jsonl`)
+are written under `GATEWAY_LOG_DIR` (default `/home/gateway/logs` in the
+container image, writable by the non-root `gateway` user the process runs as).
 
 ## Docker
 
