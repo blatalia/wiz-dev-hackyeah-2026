@@ -23,15 +23,22 @@ function settingsOf(entries: [string, unknown][]): ConfigSetting[] {
     .sort((a, b) => a.key.localeCompare(b.key));
 }
 
+function collectGroups(prefix: string, map: Record<string, unknown>, groups: ConfigGroup[]): void {
+  const entries = Object.entries(map);
+  const settings = settingsOf(entries);
+  if (settings.length > 0) groups.push({ key: prefix, settings });
+  entries
+    .filter((e): e is [string, Record<string, unknown>] => isMap(e[1]))
+    .forEach(([key, submap]) => collectGroups(prefix ? `${prefix}.${key}` : key, submap, groups));
+}
+
 function toConfig(item: Record<string, unknown>): GatewayConfig {
   const entries = Object.entries(item).filter(([key]) => key !== "configId");
-  const groups: ConfigGroup[] = [
-    { key: "", settings: settingsOf(entries) },
-    ...entries
-      .filter((e): e is [string, Record<string, unknown>] => isMap(e[1]))
-      .map(([key, map]) => ({ key, settings: settingsOf(Object.entries(map)) }))
-      .sort((a, b) => a.key.localeCompare(b.key)),
-  ];
+  const groups: ConfigGroup[] = [{ key: "", settings: settingsOf(entries) }];
+  entries
+    .filter((e): e is [string, Record<string, unknown>] => isMap(e[1]))
+    .forEach(([key, map]) => collectGroups(key, map, groups));
+  groups.sort((a, b) => a.key.localeCompare(b.key));
   return { configId: String(item.configId), groups: groups.filter((g) => g.settings.length > 0) };
 }
 
@@ -54,8 +61,12 @@ export class DynamoConfigStore implements ConfigStore {
       names[`#k${i}`] = c.key;
       values[`:v${i}`] = c.value;
       if (c.group === "") return `#k${i}`;
-      names[`#g${i}`] = c.group;
-      return `#g${i}.#k${i}`;
+      const segments = c.group.split(".").map((segment, j) => {
+        const alias = `#g${i}_${j}`;
+        names[alias] = segment;
+        return alias;
+      });
+      return `${segments.join(".")}.#k${i}`;
     });
 
     try {

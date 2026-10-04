@@ -1,4 +1,4 @@
-"""Background poller that mirrors the ai-gateway-config DynamoDB item into two
+"""Background poller that mirrors the ai-gateway-config DynamoDB item into
 environment variables, so guardrail functions always see live config without
 needing a restart or an explicit DynamoDB call per request.
 
@@ -6,14 +6,25 @@ The DynamoDB item (configId="default") has three nested maps:
     {
       "configId": "default",
       "pii_to_anonymize": {"ACCOUNT_NUMBER": true, "EMAIL": false, ...},
-      "mcp_config": {"get_customer_contract_c014": true, ..., "num_tool_calls": 2},
       "input_validation": {"max_tokens": 10000},
+      "mcp_config": {
+        "default":         {"get_customer_contract_c014": true, ..., "num_tool_calls": 2},
+        "bianka@test.com": {"get_customer_contract_c014": true, ..., "num_tool_calls": 2},
+        "filip@test.com":  {"get_customer_contract_c014": false, ..., "num_tool_calls": 2},
+      },
     }
 
-Those are mirrored into three comma-separated environment variables:
+mcp_config is keyed by user email, so each user can have a different set of
+enabled tools / tool-call limit (role-based access). A "default" entry acts
+as the fallback for any email not explicitly listed (including anonymous
+requests). These are mirrored into three environment variables:
     PII_TO_ANONYMIZE="ACCOUNT_NUMBER,ADDRESS,..."     # only keys that are true
-    MCP_CONFIG="get_customer_contract_c014=true,...,num_tool_calls=2"  # every key
     INPUT_VALIDATION="max_tokens=10000"               # every key
+    MCP_CONFIG='{"default": {"get_customer_contract_c014": true, ...}, "bianka@test.com": {...}, ...}'
+
+For backward compatibility, MCP_CONFIG may also be set to the legacy flat
+comma-separated format ("get_customer_contract_c014=true,...") which is
+treated as a single shared config applied to every user.
 
 Usage:
     from gateway.guardrails.config_poller import ConfigPoller
@@ -30,6 +41,7 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import threading
@@ -49,6 +61,7 @@ DEFAULT_REGION: Final[str] = "eu-north-1"
 DEFAULT_POLL_INTERVAL_SECONDS: Final[float] = 60.0
 DEFAULT_NUM_TOOL_CALLS: Final[int] = 2
 DEFAULT_MAX_TOKENS: Final[int] = 10000
+DEFAULT_MCP_USER_KEY: Final[str] = "default"
 
 
 def get_pii_to_anonymize() -> list[str]:
@@ -69,9 +82,38 @@ def is_pii_type_enabled(pii_type: str, default: bool = True) -> bool:
     return pii_type in raw.split(",")
 
 
-def get_mcp_config() -> dict[str, str]:
-    """Return every MCP_CONFIG entry as raw strings, keyed by name."""
-    raw = os.environ.get(MCP_ENV_VAR, "")
+def _stringify_mcp_value(value: object) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def get_mcp_config(user_email: str | None = None) -> dict[str, str]:
+    """Return the MCP tool config for a user, as raw strings keyed by name.
+
+    MCP_CONFIG is normally a JSON object keyed by user email (with a
+    "default" fallback entry for any email not explicitly listed). For
+    backward compatibility, a legacy flat "key=value,key=value" string is
+    also accepted and applied the same way to every user.
+    """
+    raw = os.environ.get(MCP_ENV_VAR, "").strip()
+    if not raw:
+        return {}
+
+    if raw.startswith("{"):
+        try:
+            by_user = json.loads(raw)
+        except ValueError:
+            logger.warning("Could not parse %s as JSON, ignoring", MCP_ENV_VAR)
+            return {}
+        user_map = None
+        if user_email is not None:
+            user_map = by_user.get(user_email)
+        if user_map is None:
+            user_map = by_user.get(DEFAULT_MCP_USER_KEY, {})
+        return {key: _stringify_mcp_value(value) for key, value in user_map.items()}
+
+    # Legacy flat format: one shared config applied to every user.
     entries: dict[str, str] = {}
     for pair in raw.split(","):
         key, sep, value = pair.partition("=")
@@ -80,17 +122,17 @@ def get_mcp_config() -> dict[str, str]:
     return entries
 
 
-def is_tool_enabled(tool_name: str, default: bool = True) -> bool:
-    """Check whether a single MCP tool is currently enabled."""
-    raw = get_mcp_config().get(tool_name)
+def is_tool_enabled(tool_name: str, user_email: str | None = None, default: bool = True) -> bool:
+    """Check whether a single MCP tool is currently enabled for a user."""
+    raw = get_mcp_config(user_email).get(tool_name)
     if raw is None:
         return default
     return raw == "true"
 
 
-def get_num_tool_calls(default: int = DEFAULT_NUM_TOOL_CALLS) -> int:
-    """Read the latest tool-call limit, falling back when absent or invalid."""
-    raw = get_mcp_config().get("num_tool_calls", "")
+def get_num_tool_calls(user_email: str | None = None, default: int = DEFAULT_NUM_TOOL_CALLS) -> int:
+    """Read the latest tool-call limit for a user, falling back when absent or invalid."""
+    raw = get_mcp_config(user_email).get("num_tool_calls", "")
     return int(raw) if raw.isdecimal() else default
 
 
@@ -176,6 +218,35 @@ class ConfigPoller:
             return str(attribute_value["N"])
         return None
 
+    @staticmethod
+    def _attribute_value_to_native(attribute_value: dict[str, object]) -> bool | int | None:
+        """Render a single DynamoDB attribute value as a native bool/int."""
+        if "BOOL" in attribute_value:
+            return bool(attribute_value["BOOL"])
+        if "N" in attribute_value:
+            return int(attribute_value["N"])
+        return None
+
+    def _render_mcp_config(self, mcp_map: dict[str, dict[str, object]]) -> str:
+        """Render the mcp_config DynamoDB map to the MCP_CONFIG env var value.
+
+        mcp_map is keyed by user email (plus a "default" fallback entry),
+        each value a nested map of tool_name -> BOOL/N. Rendered as a JSON
+        object so get_mcp_config() can look up per-user permissions.
+        """
+        by_user: dict[str, dict[str, bool | int]] = {}
+        for user_key, user_av in mcp_map.items():
+            user_map = user_av.get("M")
+            if user_map is None:
+                continue
+            entries: dict[str, bool | int] = {}
+            for tool_key, tool_av in user_map.items():
+                rendered = self._attribute_value_to_native(tool_av)
+                if rendered is not None:
+                    entries[tool_key] = rendered
+            by_user[user_key] = entries
+        return json.dumps(by_user, sort_keys=True)
+
     def _poll_once(self, raise_on_error: bool) -> None:
         try:
             response = self._client.get_item(
@@ -207,11 +278,18 @@ class ConfigPoller:
         pii_enabled = sorted(
             key for key, av in pii_map.items() if av.get("BOOL") is True
         )
-        mcp_entries = []
-        for key in sorted(mcp_map):
-            rendered = self._attribute_value_to_str(mcp_map[key])
-            if rendered is not None:
-                mcp_entries.append(f"{key}={rendered}")
+        # mcp_config is keyed by user email (nested maps) in the current
+        # schema, but a flat map of tool_name -> BOOL/N is still accepted
+        # for backward compatibility (applied the same way to every user).
+        if any("M" in av for av in mcp_map.values()):
+            mcp_rendered = self._render_mcp_config(mcp_map)
+        else:
+            mcp_entries = []
+            for key in sorted(mcp_map):
+                rendered = self._attribute_value_to_str(mcp_map[key])
+                if rendered is not None:
+                    mcp_entries.append(f"{key}={rendered}")
+            mcp_rendered = ",".join(mcp_entries)
         input_validation_entries = []
         for key in sorted(input_validation_map):
             rendered = self._attribute_value_to_str(input_validation_map[key])
@@ -220,7 +298,7 @@ class ConfigPoller:
 
         new_values = {
             PII_ENV_VAR: ",".join(pii_enabled),
-            MCP_ENV_VAR: ",".join(mcp_entries),
+            MCP_ENV_VAR: mcp_rendered,
             INPUT_VALIDATION_ENV_VAR: ",".join(input_validation_entries),
         }
 

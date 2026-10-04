@@ -4,7 +4,17 @@ import { getConfig, updateConfig, type ConfigChange, type ConfigGroup, type Gate
 import { humanize } from "../labels";
 import { State, stagger } from "./ui";
 
-const groupTitle = (key: string) => (key === "" ? "General" : humanize(key));
+const groupTitle = (key: string) => {
+  if (key === "") return "General";
+  // Dotted keys like "mcp_config.bianka@test.com" nest a per-user override
+  // under a parent group; humanize only the parent segment and keep the
+  // email (or other leaf identifier) verbatim so it isn't word-split.
+  const segments = key.split(".");
+  const leaf = segments.pop() as string;
+  const parent = segments.join(".");
+  if (parent === "") return humanize(leaf);
+  return `${humanize(parent)} · ${leaf}`;
+};
 const show = (v: SettingValue) => (typeof v === "boolean" ? (v ? "On" : "Off") : v.toLocaleString("en-US"));
 const idOf = (group: string, key: string) => `${group}\n${key}`;
 

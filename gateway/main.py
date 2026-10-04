@@ -91,7 +91,11 @@ def chat(request: ChatRequest):
         stage = "LLM tool selection"
         history = [turn.model_dump() for turn in request.history]
         used_calls = sum(len(turn.tool_results) for turn in request.history)
-        remaining_calls = max(0, get_num_tool_calls(app.state.num_tool_calls) - used_calls)
+        remaining_calls = max(
+            0,
+            get_num_tool_calls(request.user_email or "anonymous", default=app.state.num_tool_calls)
+            - used_calls,
+        )
         result = json.loads(
             guardrails.send_input_to_llm(
                 prompt, history=history, allow_tools=remaining_calls > 0
