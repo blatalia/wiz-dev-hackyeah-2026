@@ -9,9 +9,12 @@ import time
 import uuid
 from collections import deque
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 from threading import Lock
 from typing import Any, Literal, TypeAlias
+import boto3
+from botocore.config import Config
 from sql_detector.detect_sql import DetectSQL
 
 from anonymization_utils.anonymizer import Anonymizer
@@ -172,12 +175,42 @@ def get_metrics() -> dict[str, Any]:
 LOG_DIR = Path(os.environ.get("GATEWAY_LOG_DIR", Path(__file__).resolve().parents[1] / "logs"))
 METRICS_LOG_PATH = LOG_DIR / "metrics.json"
 EVENTS_LOG_PATH = LOG_DIR / "events.jsonl"
+DYNAMODB_REGION = os.environ.get("AWS_REGION", "eu-north-1")
+DYNAMODB_TABLE_NAME = os.environ.get("EVENTS_TABLE", "ai-gateway-request-events")
 _log_lock = Lock()
 logger = logging.getLogger(__name__)
+_dynamodb_table = None
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _table():
+    global _dynamodb_table
+    if _dynamodb_table is None:
+        dynamodb = boto3.resource(
+            "dynamodb",
+            region_name=DYNAMODB_REGION,
+            config=Config(connect_timeout=2, read_timeout=2, retries={"max_attempts": 1}),
+            endpoint_url=os.environ.get("DYNAMODB_ENDPOINT") or None,
+        )
+        _dynamodb_table = dynamodb.Table(DYNAMODB_TABLE_NAME)
+    return _dynamodb_table
+
+
+def _dynamodb_value(value: Any) -> Any:
+    if isinstance(value, float):
+        return Decimal(str(value))
+    if isinstance(value, dict):
+        return {key: _dynamodb_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_dynamodb_value(item) for item in value]
+    return value
+
+
+def _put_dynamodb(item: dict[str, Any]) -> None:
+    _table().put_item(Item=_dynamodb_value(item))
 
 
 def _log_event(
@@ -201,13 +234,39 @@ def _log_event(
     metrics = get_metrics()
     try:
         with _log_lock:
+            event_id = event["event_id"]
+            day = timestamp[:10]
+            outcome = "ALLOWED" if is_safe else "BLOCKED"
+            _put_dynamodb(
+                {
+                    "pk": f"DAY#{day}",
+                    "sk": f"{timestamp}#{event_id}",
+                    "requestId": event_id,
+                    "timestamp": timestamp,
+                    "eventType": event_type,
+                    "decision": {"outcome": outcome, "reasonCode": event["reason"]},
+                    "performance": {
+                        "totalLatencyMs": round(event["processing_time_seconds"] * 1000)
+                    },
+                    "event": event,
+                }
+            )
+            _put_dynamodb(
+                {
+                    "pk": "METRICS",
+                    "sk": "CURRENT",
+                    "recordType": "aggregate_metrics",
+                    "timestamp": _now(),
+                    "metrics": metrics,
+                }
+            )
             LOG_DIR.mkdir(parents=True, exist_ok=True)
             with EVENTS_LOG_PATH.open("a", encoding="utf-8") as events_file:
                 events_file.write(json.dumps(event, ensure_ascii=False) + "\n")
             tmp_path = METRICS_LOG_PATH.with_suffix(".json.tmp")
             tmp_path.write_text(json.dumps(metrics, indent=2, ensure_ascii=False), encoding="utf-8")
             tmp_path.replace(METRICS_LOG_PATH)
-    except OSError as exc:
+    except Exception as exc:
         logger.warning("Could not write gateway logs: %s", type(exc).__name__)
 
 
