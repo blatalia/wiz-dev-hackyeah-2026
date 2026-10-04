@@ -17,6 +17,9 @@ COPY gateway/ ./gateway/
 COPY llm/ ./llm/
 COPY mcp/tools_bianka.py ./mcp/
 COPY case_files/ ./case_files/
+COPY anonymization_utils/ ./anonymization_utils/
+COPY sql_detector/ ./sql_detector/
+COPY config/ ./config/
 
 USER gateway
 
