@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import unittest
+from contextvars import ContextVar
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -26,6 +27,8 @@ class UserEmailTests(unittest.TestCase):
 
     def setUp(self):
         self.guardrails.reset_mock()
+        self.guardrails.request_user_email = ContextVar("test_user_email", default="anonymous")
+        self.guardrails.initial_input_check.side_effect = None
         self.guardrails.initial_input_check.return_value = "ALLOW"
         self.guardrails.send_input_to_llm.return_value = json.dumps(
             {"text": "", "tools": ["get_kyc_status"]}
@@ -57,6 +60,37 @@ class UserEmailTests(unittest.TestCase):
     def test_empty_email_is_rejected_by_request_validation(self):
         with self.assertRaises(ValueError):
             self.gateway.ChatRequest(prompt="Question", user_email="")
+
+    def test_email_is_available_throughout_request_and_reset_afterwards(self):
+        def check_input(prompt):
+            self.assertEqual(self.guardrails.request_user_email.get(), "bianka@test.com")
+            return "ALLOW"
+
+        def check_summary(*args, **kwargs):
+            self.assertEqual(self.guardrails.request_user_email.get(), "bianka@test.com")
+            return "Answer"
+
+        with (
+            patch.object(self.guardrails, "initial_input_check", side_effect=check_input),
+            patch.object(self.guardrails, "send_tool_results_to_llm", side_effect=check_summary),
+        ):
+            self.gateway.chat(self.gateway.ChatRequest(prompt="Question", user_email="bianka@test.com"))
+        self.assertEqual(self.guardrails.request_user_email.get(), "anonymous")
+
+    def test_email_is_reset_after_rejection_or_failure(self):
+        for result in ("REJECT", ValueError("Failed"), RuntimeError("Missing token")):
+            with self.subTest(result=result):
+                def check_input(prompt):
+                    self.assertEqual(self.guardrails.request_user_email.get(), "bianka@test.com")
+                    if isinstance(result, Exception):
+                        raise result
+                    return result
+
+                self.guardrails.initial_input_check.side_effect = check_input
+                self.gateway.chat(
+                    self.gateway.ChatRequest(prompt="Question", user_email="bianka@test.com")
+                )
+                self.assertEqual(self.guardrails.request_user_email.get(), "anonymous")
 
 
 if __name__ == "__main__":
