@@ -23,13 +23,19 @@ function settingsOf(entries: [string, unknown][]): ConfigSetting[] {
     .sort((a, b) => a.key.localeCompare(b.key));
 }
 
+// Joins nested group path segments. Using "." would be ambiguous because
+// per-user group keys are email addresses, which themselves contain dots
+// (e.g. "mcp_config" + "filip@test.com" must stay 2 segments, not 3).
+const GROUP_SEPARATOR = "::";
+
 function collectGroups(prefix: string, map: Record<string, unknown>, groups: ConfigGroup[]): void {
   const entries = Object.entries(map);
   const settings = settingsOf(entries);
   if (settings.length > 0) groups.push({ key: prefix, settings });
   entries
     .filter((e): e is [string, Record<string, unknown>] => isMap(e[1]))
-    .forEach(([key, submap]) => collectGroups(prefix ? `${prefix}.${key}` : key, submap, groups));
+    .forEach(([key, submap]) =>
+      collectGroups(prefix ? `${prefix}${GROUP_SEPARATOR}${key}` : key, submap, groups));
 }
 
 function toConfig(item: Record<string, unknown>): GatewayConfig {
@@ -61,7 +67,7 @@ export class DynamoConfigStore implements ConfigStore {
       names[`#k${i}`] = c.key;
       values[`:v${i}`] = c.value;
       if (c.group === "") return `#k${i}`;
-      const segments = c.group.split(".").map((segment, j) => {
+      const segments = c.group.split(GROUP_SEPARATOR).map((segment, j) => {
         const alias = `#g${i}_${j}`;
         names[alias] = segment;
         return alias;

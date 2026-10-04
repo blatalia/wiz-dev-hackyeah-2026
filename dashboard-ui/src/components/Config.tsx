@@ -4,14 +4,16 @@ import { getConfig, updateConfig, type ConfigChange, type ConfigGroup, type Gate
 import { humanize } from "../labels";
 import { State, stagger } from "./ui";
 
+const GROUP_SEPARATOR = "::";
 const groupTitle = (key: string) => {
   if (key === "") return "General";
-  // Dotted keys like "mcp_config.bianka@test.com" nest a per-user override
-  // under a parent group; humanize only the parent segment and keep the
-  // email (or other leaf identifier) verbatim so it isn't word-split.
-  const segments = key.split(".");
+  // Nested keys like "mcp_config::bianka@test.com" group a per-user
+  // override under a parent group; humanize only the parent segment and
+  // keep the email (or other leaf identifier) verbatim so it isn't
+  // word-split by humanize()'s "." handling.
+  const segments = key.split(GROUP_SEPARATOR);
   const leaf = segments.pop() as string;
-  const parent = segments.join(".");
+  const parent = segments.join(GROUP_SEPARATOR);
   if (parent === "") return humanize(leaf);
   return `${humanize(parent)} · ${leaf}`;
 };
