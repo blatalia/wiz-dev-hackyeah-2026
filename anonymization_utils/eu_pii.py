@@ -10,6 +10,12 @@ from transformers import AutoModelForTokenClassification, AutoTokenizer, BitsAnd
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "pii_config.yml"
 
+# Kept in sync with DynamoDB by gateway.guardrails.config_poller.ConfigPoller:
+# a comma-separated list of the PII categories currently enabled (e.g.
+# "ACCOUNT_NUMBER,EMAIL,IBAN"). Read directly from os.environ here (rather than
+# importing the gateway package) so this module stays usable standalone.
+PII_ENV_VAR = "PII_TO_ANONYMIZE"
+
 LABEL_ALIASES = {
     "ORG": "COMPANY_NAME",
     "PER": "PERSON",
@@ -32,6 +38,21 @@ def load_pii_to_anonymize(config_path: Path) -> set[str]:
     with open(config_path, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
     return set(config.get("pii_to_anonymize", []))
+
+
+def enabled_pii_types(config_path: Path = DEFAULT_CONFIG_PATH) -> set[str]:
+    """Return the PII categories currently enabled for anonymization.
+
+    Prefers the live PII_TO_ANONYMIZE environment variable so toggling a
+    category in the dashboard/DynamoDB takes effect on the next detection
+    call, without reloading the (expensive) model. Falls back to the static
+    pii_config.yml list when the env var is unset, e.g. running this module
+    standalone outside the gateway where no poller is populating it.
+    """
+    raw = os.environ.get(PII_ENV_VAR)
+    if raw is not None:
+        return {item for item in raw.split(",") if item}
+    return load_pii_to_anonymize(config_path)
 
 
 def spans_overlap(a: dict, b: dict) -> bool:
@@ -74,7 +95,7 @@ class PIIDetector:
             pii_model_name, quantization_config=quantization_config, device_map="auto"
         )
         self.client = InferenceClient(provider="hf-inference", api_key=api_key or os.getenv("API_KEY"))
-        self.pii_to_anonymize = load_pii_to_anonymize(config_path)
+        self.config_path = config_path
 
     def _run_pii_safeguard(self, text: str) -> list[dict]:
         inputs = self.tokenizer(text, return_tensors="pt", truncation=True, return_offsets_mapping=True)
@@ -132,13 +153,20 @@ class PIIDetector:
         return sorted(result, key=lambda e: e["start"])
 
     def detect(self, text: str) -> list[dict]:
+        """Detect PII spans whose category is currently enabled.
+
+        Re-reads the enabled category set on every call (see
+        enabled_pii_types) so a change pushed via DynamoDB/MCP_CONFIG-style
+        polling takes effect immediately, without recreating this detector.
+        """
         pii_spans = self._run_pii_safeguard(text)
         company_spans = self._run_bert_ner(text)
         merged = self._merge(pii_spans, company_spans)
+        pii_to_anonymize = enabled_pii_types(self.config_path)
         return [
             {"label": e["label"], "text": text[e["start"]:e["end"]], "start": e["start"], "end": e["end"], "score": e["score"]}
             for e in merged
-            if e["label"] in self.pii_to_anonymize
+            if e["label"] in pii_to_anonymize
         ]
 
     def detect_json(self, text: str, **json_kwargs) -> str:
