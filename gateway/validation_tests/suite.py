@@ -2,6 +2,7 @@
 
 import importlib
 import json
+import logging
 import os
 from collections import Counter
 from contextlib import ExitStack, contextmanager
@@ -50,6 +51,10 @@ def validation_runtime():
             "INPUT_VALIDATION": "",
             "PII_TO_ANONYMIZE": "EMAIL",
         }))
+        for name in ("httpx", "httpcore", "openai"):
+            logger = logging.getLogger(name)
+            stack.callback(logger.setLevel, logger.level)
+            logger.setLevel(logging.WARNING)
         yield guardrails
 
 
