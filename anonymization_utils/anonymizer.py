@@ -1,9 +1,9 @@
 import csv
 from pathlib import Path
 
-from pii import PIIDetector
+from anonymization_utils.pii import PIIDetector
 
-# from eu_pii import PIIDetector
+# from anonymization_utils.eu_pii import PIIDetector
 
 DEFAULT_DICT_PATH = Path(__file__).with_name("anonymization_dict.csv")
 
