@@ -14,6 +14,7 @@ from threading import Lock
 from typing import Any, Literal, TypeAlias
 
 from anonymization_utils.anonymizer import Anonymizer
+from anonymization_utils.deanonymizer import Deanonymizer
 from llm import inference
 
 from gateway.guardrails.config_poller import is_tool_enabled
@@ -44,6 +45,7 @@ GATEWAY_DECISION: TypeAlias = Literal["ALLOW", "REJECT"]
 
 _anonymizer = Anonymizer()
 _anonymizer_lock = Lock()
+_deanonymizer = Deanonymizer()
 
 
 def _anonymize(text: str) -> str:
@@ -296,12 +298,16 @@ def send_input_to_llm(
     )
     _record_usage(response)
     message = _field(_field(response, "choices")[0], "message")
+    tool_calls = _field(message, "tool_calls") or []
+    text = _field(message, "content") or ""
+    if not tool_calls:
+        text = _deanonymizer.deanonymize(text)
     return json.dumps(
         {
-            "text": _field(message, "content") or "",
+            "text": text,
             "tools": [
                 _field(_field(call, "function"), "name")
-                for call in (_field(message, "tool_calls") or [])
+                for call in tool_calls
             ],
         },
         ensure_ascii=False,
@@ -368,7 +374,8 @@ def send_tool_results_to_llm(
         ]
     )
     _record_usage(response)
-    return _field(_field(_field(response, "choices")[0], "message"), "content") or ""
+    text = _field(_field(_field(response, "choices")[0], "message"), "content") or ""
+    return _deanonymizer.deanonymize(text)
 
 
 def process_request(user_id: str, user_input: str) -> str:
