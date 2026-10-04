@@ -23,8 +23,12 @@ class SessionState(dict):
 
 
 class ChatbotTests(unittest.TestCase):
-    def run_app(self, env=None, history=None, text="Hello!", error=None, conversation=None):
+    def run_app(self, env=None, history=None, text="Hello!", error=None, conversation=None,
+                email="bianka@test.com"):
         st = MagicMock()
+        heading, identity = MagicMock(), MagicMock()
+        st.columns.return_value = (heading, identity)
+        identity.selectbox.return_value = email
         st.session_state = SessionState(messages=[GREETING.copy(), *(history or [])])
         st.session_state["history"] = conversation or []
         st.chat_input.return_value = "Hi"
@@ -52,12 +56,21 @@ class ChatbotTests(unittest.TestCase):
         st, post = self.run_app()
         post.assert_called_once_with(
             "http://localhost:8000/chat",
-            json={"prompt": "Hi", "history": []},
+            json={"prompt": "Hi", "history": [], "user_email": "bianka@test.com"},
             timeout=(5, 120),
         )
         st.spinner.assert_called_once_with("Thinking...")
         self.assertEqual(st.session_state.messages[-1]["content"], "Hello!")
         st.chat_message.return_value.write.assert_any_call("Hello!")
+
+    def test_selected_email_is_sent_with_followup_history(self):
+        conversation = [{"prompt": "Hello", "answer": "Hi", "tool_results": []}]
+        st, post = self.run_app(email="filip@test.com", conversation=conversation)
+        self.assertEqual(post.call_args.kwargs["json"]["user_email"], "filip@test.com")
+        self.assertEqual(post.call_args.kwargs["json"]["history"], conversation)
+        st.columns.return_value[1].selectbox.assert_called_once_with(
+            "Agent email", ("bianka@test.com", "filip@test.com"), key="agent_email"
+        )
 
     def test_gateway_url_can_be_configured_for_containers(self):
         _, post = self.run_app(env={"GATEWAY_URL": "http://gateway:8000/"})

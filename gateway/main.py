@@ -61,6 +61,7 @@ class ConversationTurn(BaseModel):
 class ChatRequest(BaseModel):
     prompt: str = Field(min_length=1)
     history: list[ConversationTurn] = Field(default_factory=list)
+    user_email: str | None = Field(default=None, min_length=1)
 
 
 class ChatResponse(BaseModel):
@@ -101,7 +102,9 @@ def chat(request: ChatRequest):
         denied_tools = [
             name
             for name in result["tools"]
-            if guardrails.tool_access_check(user_id="anonymous", tool_name=name) != "ALLOW"
+            if guardrails.tool_access_check(
+                user_id=request.user_email or "anonymous", tool_name=name
+            ) != "ALLOW"
         ]
         if denied_tools:
             text = (

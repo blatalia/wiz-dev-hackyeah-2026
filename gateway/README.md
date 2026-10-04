@@ -32,7 +32,10 @@ without logging prompts, retrieved data, tokens or provider response bodies.
 ## Endpoints
 
 - `GET /health` returns `{"status": "ok"}` without calling the LLM.
-- `POST /chat` accepts `{"prompt": "Analyze customer revenue concentration.", "history": []}`.
+- `POST /chat` accepts `{"prompt": "Analyze customer revenue concentration.", "history": [], "user_email": "bianka@test.com"}`.
+
+The optional `user_email` is passed to the guardrail tool-access check as `user_id`.
+Requests that omit it continue to use `anonymous`.
 
 Chat checks the prompt, asks the LLM to select tools, and calls those tools by name.
 When tools are used, it sends the original question and named tool results back to
