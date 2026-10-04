@@ -460,11 +460,6 @@ def call_tool(tool_name: str) -> str:
     return TOOLS[tool_name]()
 
 
-def tool_output_check(tool_output: Any) -> GATEWAY_DECISION:
-    """Validate tool results, including checking for errors."""
-    pass
-
-
 def send_tool_results_to_llm(
     user_input: str,
     tool_results: list[dict[str, str]],
@@ -497,8 +492,3 @@ def send_tool_results_to_llm(
     _record_usage(response)
     text = _field(_field(_field(response, "choices")[0], "message"), "content") or ""
     return _deanonymizer.deanonymize(text)
-
-
-def process_request(user_id: str, user_input: str) -> str:
-    """Process a request through the complete gateway pipeline."""
-    pass
