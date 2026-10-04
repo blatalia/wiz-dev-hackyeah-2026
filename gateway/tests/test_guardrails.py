@@ -75,6 +75,44 @@ class GuardrailsTests(unittest.TestCase):
             )
             self.assertEqual(decision, "REJECT")
 
+    def test_output_check_allows_only_explicit_safe_result_and_records_usage(self):
+        for result, expected in (
+            ({"is_safe": True, "reason": "Safe", "total_tokens": 10, "cost": 0.001}, "ALLOW"),
+            ({"is_safe": False, "reason": "Restricted disclosure"}, "REJECT"),
+            ({}, "REJECT"),
+            ({"is_safe": "true"}, "REJECT"),
+        ):
+            with (
+                self.subTest(result=result),
+                patch.object(self.guardrails, "_anonymize", return_value="Anonymized output") as anonymize,
+                patch.object(self.guardrails.inference, "judge_llm_response", return_value=result) as judge,
+                patch.object(self.guardrails, "_record_usage") as usage,
+                patch.object(self.guardrails, "_record_llm_output_check") as record,
+                patch.object(self.guardrails, "_log_event") as log,
+            ):
+                self.assertEqual(self.guardrails.llm_output_check("Original output"), expected)
+                anonymize.assert_called_once_with("Original output")
+                judge.assert_called_once_with("Anonymized output")
+                usage.assert_called_once_with(result)
+                record.assert_called_once_with(expected == "ALLOW", result.get("reason"))
+                self.assertEqual(log.call_args.args[0], "llm_output")
+                self.assertEqual(log.call_args.args[3:], (expected == "ALLOW", result.get("reason")))
+
+    def test_output_check_records_and_propagates_evaluator_failure(self):
+        with (
+            patch.object(self.guardrails, "_anonymize", return_value="Output"),
+            patch.object(self.guardrails.inference, "judge_llm_response", side_effect=ValueError("Failed")),
+            patch.object(self.guardrails, "_record_usage") as usage,
+            patch.object(self.guardrails, "_record_llm_output_check") as record,
+            patch.object(self.guardrails, "_log_event") as log,
+        ):
+            with self.assertRaisesRegex(ValueError, "Failed"):
+                self.guardrails.llm_output_check("Output")
+            usage.assert_not_called()
+            record.assert_called_once_with(False, "ValueError")
+            self.assertEqual(log.call_args.args[0], "llm_output")
+            self.assertEqual(log.call_args.args[3:], (False, "ValueError"))
+
     def send_input(self, content, tool_names):
         message = SimpleNamespace(
             content=content,
