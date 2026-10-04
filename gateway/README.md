@@ -57,8 +57,9 @@ Point Streamlit's `GATEWAY_URL` at `http://localhost:8000` locally or
 `http://gateway:8000` when both containers share a network and the gateway is named
 `gateway`. Port 8000 must be published if accessed from outside the container network.
 
-Permission checks, output checks and end-to-end processing remain stubs.
-Tool execution currently has no permission enforcement.
+Output checks and end-to-end processing (`llm_output_check`, `process_request`)
+remain stubs. Tool access is now enforced via `MCP_CONFIG` (see below); the other
+checks still have no enforcement.
 
 ## Tool-call limit
 
@@ -84,6 +85,18 @@ explains the limit. A successful batch that uses the last available calls includ
 a notice that no further retrieval is available.
 
 This uses the existing session history, so refreshing the browser resets the budget.
+
+## Tool access control
+
+Every other key in the `mcp_config` map is a boolean per MCP tool name (e.g.
+`get_kyc_status`). The gateway only offers currently-enabled tools to the LLM for
+selection (`send_input_to_llm` filters `TOOLS` with `is_tool_enabled(name)`), and
+`tool_access_check(user_id, tool_name)` rejects execution again right before any
+tool runs, in case a disabled tool is still named by the model. Toggling a tool off
+in DynamoDB takes effect on the next request once the config poller refreshes
+`MCP_CONFIG` (within the poll interval, default 60s). `user_id` is accepted for a
+future per-user permission model; access is currently governed solely by the
+shared `MCP_CONFIG`.
 
 ## Runtime token usage
 

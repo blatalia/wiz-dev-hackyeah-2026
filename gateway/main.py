@@ -97,7 +97,19 @@ def chat(request: ChatRequest):
         )
         text = result["text"]
         tool_results = []
-        if len(result["tools"]) > remaining_calls:
+        stage = "tool access check"
+        denied_tools = [
+            name
+            for name in result["tools"]
+            if guardrails.tool_access_check(user_id="anonymous", tool_name=name) != "ALLOW"
+        ]
+        if denied_tools:
+            text = (
+                "This request needs a tool that is currently disabled by configuration: "
+                f"{', '.join(denied_tools)}. No tools were called. I can use previously "
+                "retrieved information, or you can ask something else."
+            )
+        elif len(result["tools"]) > remaining_calls:
             if remaining_calls == 0:
                 text = TOOL_LIMIT_MESSAGE
             else:

@@ -178,6 +178,31 @@ class GuardrailsTests(unittest.TestCase):
                 if function is self.guardrails.send_input_to_llm:
                     self.assertEqual(len(chat.call_args.kwargs["tools"]), 10)
 
+    def test_disabled_tools_are_omitted_from_selection(self):
+        with patch.dict(os.environ, {"MCP_CONFIG": "get_kyc_status=false"}, clear=True):
+            result, request = self.send_input(None, [])
+        names = [tool["function"]["name"] for tool in request["tools"]]
+        self.assertNotIn("get_kyc_status", names)
+        self.assertEqual(len(request["tools"]), 9)
+
+    def test_tool_access_check_follows_mcp_config(self):
+        with patch.dict(os.environ, {"MCP_CONFIG": "get_kyc_status=false"}, clear=True):
+            self.assertEqual(
+                self.guardrails.tool_access_check("user-1", "get_kyc_status"), "REJECT"
+            )
+            self.assertEqual(
+                self.guardrails.tool_access_check("user-1", "get_kyc_details"), "ALLOW"
+            )
+
+    def test_tool_access_check_defaults_to_allow_when_unconfigured(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(
+                self.guardrails.tool_access_check("user-1", "get_kyc_status"), "ALLOW"
+            )
+
+    def test_tool_access_check_rejects_unknown_tool(self):
+        self.assertEqual(self.guardrails.tool_access_check("user-1", "_read_file"), "REJECT")
+
     def test_unknown_tool_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "Unknown tool"):
             self.guardrails.call_tool("_read_file")

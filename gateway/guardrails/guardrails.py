@@ -15,6 +15,8 @@ from typing import Any, Literal, TypeAlias
 
 from llm import inference
 
+from gateway.guardrails.config_poller import is_tool_enabled
+
 # Load by path because the local mcp/ folder shares its name with the MCP SDK.
 _tools_path = Path(__file__).resolve().parents[2] / "mcp" / "tools_bianka.py"
 _tools_spec = importlib.util.spec_from_file_location("tools_bianka", _tools_path)
@@ -38,6 +40,15 @@ TOOLS = {
 }
 
 GATEWAY_DECISION: TypeAlias = Literal["ALLOW", "REJECT"]
+
+
+def _enabled_tools() -> dict[str, Any]:
+    """Return the subset of TOOLS currently enabled via MCP_CONFIG.
+
+    Read at call time (not once at import) so toggling a tool in DynamoDB
+    takes effect on the next request once the config poller updates it.
+    """
+    return {name: function for name, function in TOOLS.items() if is_tool_enabled(name)}
 
 
 def _field(value: Any, name: str) -> Any:
@@ -225,6 +236,7 @@ def send_input_to_llm(
 
     Example result: {"text": "", "tools": ["get_customer_revenue"]}.
     This selects tools but does not execute them or run permission checks.
+    Only tools currently enabled via MCP_CONFIG are offered to the LLM.
     """
     tools = [
         {
@@ -240,7 +252,7 @@ def send_input_to_llm(
                 },
             },
         }
-        for name, function in TOOLS.items()
+        for name, function in _enabled_tools().items()
     ]
     response = _timed_chat_completion(
         messages=[
@@ -287,8 +299,17 @@ def llm_output_check(llm_output: str) -> GATEWAY_DECISION:
 
 
 def tool_access_check(user_id: str, tool_name: str) -> GATEWAY_DECISION:
-    """Check MCP tool permissions using configuration storage."""
-    pass
+    """Check MCP tool permissions using configuration storage.
+
+    Defense in depth: send_input_to_llm already hides disabled tools from
+    tool selection, but a model could still name a disabled tool, so this is
+    checked again right before execution. user_id is accepted for a future
+    per-user permission model; access is currently governed solely by the
+    shared MCP_CONFIG.
+    """
+    if tool_name not in TOOLS:
+        return "REJECT"
+    return "ALLOW" if is_tool_enabled(tool_name) else "REJECT"
 
 
 def call_tool(tool_name: str) -> str:

@@ -93,6 +93,21 @@ class ToolLimitTests(unittest.TestCase):
         self.assertFalse(self.select.call_args.kwargs["allow_tools"])
         self.assertIn("can't retrieve more", response.text)
 
+    def test_disabled_tool_is_blocked_before_execution(self):
+        self._patch(
+            self.gateway.guardrails,
+            "tool_access_check",
+            side_effect=lambda user_id, tool_name: (
+                "REJECT" if tool_name == "get_kyc_status" else "ALLOW"
+            ),
+        )
+        response = self.request(0, ["get_kyc_status"])
+        self.tool.assert_not_called()
+        self.summary.assert_not_called()
+        self.assertIn("currently disabled by configuration", response.text)
+        self.assertIn("get_kyc_status", response.text)
+        self.assertEqual(response.history[-1].tool_results, [])
+
     def test_missing_or_invalid_dynamic_limit_uses_hardcoded_two(self):
         self.gateway.app.state.num_tool_calls = self.gateway.NUM_TOOL_CALLS_HARDCODE
         for value in ("", "num_tool_calls=bad", "num_tool_calls=-1", "num_tool_calls=true", "num_tool_calls=1.5"):
