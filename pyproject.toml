@@ -13,6 +13,7 @@ dependencies = [
     "boto3>=1.34,<2.0",
     "bitsandbytes",
     "accelerate",
+    "pytest"
 ]
 
 [build-system]

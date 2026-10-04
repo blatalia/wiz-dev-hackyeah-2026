@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
 from typing import Any, Literal, TypeAlias
+from sql_detector.detect_sql import DetectSQL
 
 from llm import inference
 
@@ -182,6 +183,27 @@ def _log_event(
         logger.warning("Could not write gateway logs: %s", type(exc).__name__)
 
 
+def _log_sql_check(timestamp: str, started: float, is_sql: bool) -> None:
+    """Append one SQL-detection event to the events log and rewrite the aggregated metrics file."""
+    event = {
+        "event_id": str(uuid.uuid4()),
+        "event_type": "sql_check",
+        "timestamp": timestamp,
+        "processing_time_seconds": time.perf_counter() - started,
+        "is_sql": is_sql,
+    }
+    try:
+        with _log_lock:
+            LOG_DIR.mkdir(parents=True, exist_ok=True)
+            with EVENTS_LOG_PATH.open("a", encoding="utf-8") as events_file:
+                events_file.write(json.dumps(event, ensure_ascii=False) + "\n")
+    except OSError as exc:
+        logger.warning("Could not write gateway logs: %s", type(exc).__name__)
+
+
+_sql_detector = DetectSQL()
+
+
 def initial_input_check(user_input: str) -> GATEWAY_DECISION:
     """Check incoming content, including potential prompt injection."""
     timestamp = _now()
@@ -196,7 +218,13 @@ def initial_input_check(user_input: str) -> GATEWAY_DECISION:
     is_safe = result.get("is_safe") is True
     _record_user_input(is_safe, result.get("reason"))
     _log_event("user_input", timestamp, started, is_safe, result.get("reason"))
-    return "ALLOW" if is_safe else "REJECT"
+
+    sql_timestamp = _now()
+    sql_started = time.perf_counter()
+    is_sql = _sql_detector.is_sql(user_input)
+    _log_sql_check(sql_timestamp, sql_started, is_sql)
+
+    return "ALLOW" if is_safe and not is_sql else "REJECT"
 
 
 def _history_messages(history: list[dict[str, Any]] | None) -> list[dict[str, str]]:

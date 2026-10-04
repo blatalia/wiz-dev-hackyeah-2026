@@ -31,8 +31,5 @@ class DetectSQL:
         """Return True if any configured SQL injection pattern matches text."""
         return any(pattern.search(text) for pattern in self.patterns)
 
-
-# if __name__ == "__main__":
 #     detector = DetectSQL()
-#     sample = "SELECT * FROM users WHERE id=1 OR 1=1 --"
-#     print(detector.is_sql(sample))
+#     detector.is_sql(sample)
