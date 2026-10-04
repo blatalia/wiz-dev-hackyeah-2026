@@ -60,12 +60,18 @@ def _anonymize(text: str) -> str:
 
 
 def _enabled_tools() -> dict[str, Any]:
-    """Return the subset of TOOLS currently enabled via MCP_CONFIG.
+    """Return the subset of TOOLS currently enabled for the requesting user.
 
     Read at call time (not once at import) so toggling a tool in DynamoDB
     takes effect on the next request once the config poller updates it.
+    Permissions are per-user (role-based access, keyed by user_email).
     """
-    return {name: function for name, function in TOOLS.items() if is_tool_enabled(name)}
+    user_email = request_user_email.get()
+    return {
+        name: function
+        for name, function in TOOLS.items()
+        if is_tool_enabled(name, user_email)
+    }
 
 
 def _field(value: Any, name: str) -> Any:
@@ -353,7 +359,8 @@ def send_input_to_llm(
 
     Example result: {"text": "", "tools": ["get_customer_revenue"]}.
     This selects tools but does not execute them or run permission checks.
-    Only tools currently enabled via MCP_CONFIG are offered to the LLM.
+    Only tools currently enabled for the requesting user (role-based access
+    via MCP_CONFIG) are offered to the LLM.
     """
     tools = [
         {
@@ -433,17 +440,17 @@ def llm_output_check(llm_output: str) -> GATEWAY_DECISION:
 
 
 def tool_access_check(user_id: str, tool_name: str) -> GATEWAY_DECISION:
-    """Check MCP tool permissions using configuration storage.
+    """Check MCP tool permissions for a user using configuration storage.
 
     Defense in depth: send_input_to_llm already hides disabled tools from
     tool selection, but a model could still name a disabled tool, so this is
-    checked again right before execution. user_id is accepted for a future
-    per-user permission model; access is currently governed solely by the
-    shared MCP_CONFIG.
+    checked again right before execution. Access is role-based per user_id
+    (user_email), governed by the per-user entries in MCP_CONFIG, falling
+    back to the "default" entry for users without an explicit override.
     """
     if tool_name not in TOOLS:
         return "REJECT"
-    return "ALLOW" if is_tool_enabled(tool_name) else "REJECT"
+    return "ALLOW" if is_tool_enabled(tool_name, user_id) else "REJECT"
 
 
 def call_tool(tool_name: str) -> str:
