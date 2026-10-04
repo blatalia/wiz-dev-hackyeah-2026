@@ -2,14 +2,13 @@ import json
 import os
 from pathlib import Path
 
-import torch
+import requests
 import yaml
 from dotenv import load_dotenv
 from huggingface_hub import InferenceClient
-from transformers import AutoModelForTokenClassification, AutoTokenizer, BitsAndBytesConfig
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "pii_config.yml"
-
+load_dotenv()
 # Kept in sync with DynamoDB by gateway.guardrails.config_poller.ConfigPoller:
 # a comma-separated list of the PII categories currently enabled (e.g.
 # "ACCOUNT_NUMBER,EMAIL,IBAN"). Read directly from os.environ here (rather than
@@ -89,43 +88,40 @@ class PIIDetector:
     ) -> None:
         load_dotenv()
         self.ner_model_name = ner_model_name
-        self.tokenizer = AutoTokenizer.from_pretrained(pii_model_name)
-        quantization_config = BitsAndBytesConfig(load_in_4bit=True)
-        self.model = AutoModelForTokenClassification.from_pretrained(
-            pii_model_name, quantization_config=quantization_config, device_map="auto"
-        )
-        self.client = InferenceClient(provider="hf-inference", api_key=api_key or os.getenv("API_KEY"))
+        self.hf_token = os.environ["HF_TOKEN"]
+        self.pii_api_key = api_key or os.getenv("API_KEY")
+        self.client = InferenceClient(provider="hf-inference", api_key=self.pii_api_key)
         self.config_path = config_path
 
     def _run_pii_safeguard(self, text: str) -> list[dict]:
-        inputs = self.tokenizer(text, return_tensors="pt", truncation=True, return_offsets_mapping=True)
-        offsets = inputs.pop("offset_mapping")[0].tolist()
-        with torch.no_grad():
-            logits = self.model(**inputs).logits
-            probs = torch.softmax(logits, dim=-1)
-            predictions = torch.argmax(probs, dim=-1)
+        """Call the private Hugging Face NER Space."""
 
-        spans = []
-        current_label = None
-        span_start = span_end = None
-        span_score = 0.0
-        for (start, end), pred, prob in zip(offsets, predictions[0].tolist(), probs[0]):
-            if start == end:  # special tokens ([CLS]/[SEP]/padding) have empty offsets
-                continue
-            label = self.model.config.id2label[pred]
-            entity = label.split("-", 1)[1] if "-" in label else None
+        response = requests.post(
+            "https://blatalia-hackyeah26.hf.space/predict",
+            headers={
+                "Authorization": f"Bearer {self.hf_token}",
 
-            if entity != current_label:
-                if current_label is not None:
-                    spans.append({"start": span_start, "end": span_end, "label": normalize(current_label), "score": span_score})
-                current_label = entity
-                span_start = start
-                span_score = 0.0
-            span_end = end
-            span_score = max(span_score, prob[pred].item())
+                "X-PII-API-Key": self.pii_api_key,
 
-        if current_label is not None:
-            spans.append({"start": span_start, "end": span_end, "label": normalize(current_label), "score": span_score})
+                "Content-Type": "application/json",
+            },
+            json={"text": text},
+            timeout=120,
+        )
+
+        response.raise_for_status()
+
+        data = response.json()
+
+        spans = [
+            {
+                "start": entity["start"],
+                "end": entity["end"],
+                "label": normalize(entity["label"]),
+                "score": float(entity["score"]),
+            }
+            for entity in data["entities"]
+        ]
         return bridge_gaps(spans, text)
 
     def _run_bert_ner(self, text: str) -> list[dict]:
@@ -173,8 +169,8 @@ class PIIDetector:
         return json.dumps(self.detect(text), **json_kwargs)
 
 
-# if __name__ == "__main__":
-#     text = "My name is Sarah Jessica Parker. I am conducting a merger of Rhein Industrial with BalticInc. I'll email john.pork@gmail.com and contact Eva Muller. My home address is 123 Main St, Anytown, USA. The bank account in question is PL50558984522137676769694200."
-#     detector = PIIDetector()
-#     print(detector.detect_json(text, indent=2))
+if __name__ == "__main__":
+    text = "My name is Sarah Jessica Parker. I am conducting a merger of Rhein Industrial with BalticInc. I'll email john.pork@gmail.com and contact Eva Muller. My home address is 123 Main St, Anytown, USA. The bank account in question is PL50558984522137676769694200."
+    detector = PIIDetector()
+    print(detector.detect_json(text, indent=2))
 
