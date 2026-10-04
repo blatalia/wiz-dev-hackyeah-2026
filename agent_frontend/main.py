@@ -5,8 +5,12 @@ import streamlit as st
 
 gateway_url = os.getenv("GATEWAY_URL", "http://localhost:8000").rstrip("/")
 
-st.title("Agent")
-st.caption("Corporate assistant")
+heading, identity = st.columns([3, 2])
+heading.title("Agent")
+heading.caption("Corporate assistant")
+user_email = identity.selectbox(
+    "Agent email", ("bianka@test.com", "filip@test.com"), key="agent_email"
+)
 if "messages" not in st.session_state:
     st.session_state["messages"] = [{"role": "assistant", "content": "How can I help you?"}]
 if "history" not in st.session_state:
@@ -21,7 +25,11 @@ if prompt := st.chat_input():
         with st.spinner("Thinking..."):
             response = requests.post(
                 f"{gateway_url}/chat",
-                json={"prompt": prompt, "history": st.session_state.history},
+                json={
+                    "prompt": prompt,
+                    "history": st.session_state.history,
+                    "user_email": user_email,
+                },
                 timeout=(5, 120),
             )
             response.raise_for_status()

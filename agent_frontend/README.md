@@ -14,7 +14,9 @@ then start Streamlit from the repository root:
 GATEWAY_URL=http://localhost:8000 python -m streamlit run agent_frontend/main.py
 ```
 
-The frontend sends the current prompt and session history to `POST /chat`, then
+The dropdown at the top right selects `bianka@test.com` or `filip@test.com`.
+The frontend sends that selection as `user_email` alongside the current prompt
+and session history to `POST /chat`, then
 displays the response's `text`. Streamlit retains prior prompts, answers, tool names
 and full tool results in session memory and sends them on each subsequent turn.
 They survive normal Streamlit reruns and reset on a browser refresh or new session.
