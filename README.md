@@ -1,10 +1,11 @@
-# ZWYCIĘCY HACKYEAH2026
-Wiz.dev
+# wiz.dev HackYeah2026
 
-# wiz-dev-hackyeah-2026
+# Automatic test suite 
 
-See [agent_frontend/README.md](agent_frontend/README.md) for chatbot setup and checks.
+Running the automated test suite is achieved through navigation to the root directory of the repository and executing the runner script.
+```bash
+./gateway/validation_tests/run.sh
+```
 
-See [mcp/README.md](mcp/README.md) for the file-backed Bianka MCP tools.
-
-See [gateway/README.md](gateway/README.md) for the guardrails and LLM integration.
+Example output:
+<img width="1529" height="841" alt="image" src="https://github.com/user-attachments/assets/b4938ad9-a339-4e66-8b50-5e0701f5db11" />
