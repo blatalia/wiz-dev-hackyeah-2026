@@ -66,6 +66,15 @@ class GuardrailsTests(unittest.TestCase):
                     self.assertEqual(decision, expected)
                     judge.assert_called_once_with("Analyze revenue")
 
+    def test_input_check_rejects_sql_injection_even_when_judged_safe(self):
+        with patch.object(
+            self.guardrails.inference, "judge_user_input", return_value={"is_safe": True}
+        ):
+            decision = self.guardrails.initial_input_check(
+                "Analyze revenue'; DROP TABLE customers; --"
+            )
+            self.assertEqual(decision, "REJECT")
+
     def send_input(self, content, tool_names):
         message = SimpleNamespace(
             content=content,
