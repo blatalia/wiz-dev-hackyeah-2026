@@ -21,7 +21,7 @@ from anonymization_utils.anonymizer import Anonymizer
 from anonymization_utils.deanonymizer import Deanonymizer
 from llm import inference
 
-from gateway.guardrails.config_poller import is_tool_enabled
+from gateway.guardrails.config_poller import get_max_tokens, is_tool_enabled
 
 # Load by path because the local mcp/ folder shares its name with the MCP SDK.
 _tools_path = Path(__file__).resolve().parents[2] / "mcp" / "tools_bianka.py"
@@ -384,6 +384,7 @@ def send_input_to_llm(
             {"role": "user", "content": user_input},
         ],
         tools=tools if allow_tools else None,
+        max_tokens=get_max_tokens(),
     )
     _record_usage(response)
     message = _field(_field(response, "choices")[0], "message")
@@ -460,7 +461,8 @@ def send_tool_results_to_llm(
                 "content": "Retrieved tool results:\n"
                 + json.dumps(tool_results, ensure_ascii=False),
             },
-        ]
+        ],
+        max_tokens=get_max_tokens(),
     )
     _record_usage(response)
     text = _field(_field(_field(response, "choices")[0], "message"), "content") or ""

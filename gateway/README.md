@@ -98,6 +98,19 @@ in DynamoDB takes effect on the next request once the config poller refreshes
 future per-user permission model; access is currently governed solely by the
 shared `MCP_CONFIG`.
 
+## Input validation / max_tokens
+
+The DynamoDB config item also has an `input_validation` map, currently holding a
+single numeric entry, `max_tokens` (default `10000`, see `config/pii_config.yml`).
+The poller mirrors it to an `INPUT_VALIDATION` environment variable (e.g.
+`"max_tokens=10000"`), and `get_max_tokens()` in
+`gateway/guardrails/config_poller.py` reads it on each request. The value is
+passed as the OpenAI `max_tokens` parameter on every response-generating
+`chat_completion` call (`send_input_to_llm`, `send_tool_results_to_llm`), capping
+how long the LLM's reply can be. Missing or invalid values fall back to the
+default. Changing it in DynamoDB takes effect on the next request once the
+poller refreshes (within the poll interval, default 60s).
+
 ## Runtime token usage
 
 `gateway.guardrails.guardrails.total_tokens_spent` and `total_cost_spent` accumulate

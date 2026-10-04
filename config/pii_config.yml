@@ -28,4 +28,7 @@ mcp_config:
   - get_kyc_status
   - get_third_party_note
   - get_technical_appendix
-  - num_tool_calls # int 
+  - num_tool_calls # int
+
+input_validation:
+  max_tokens: 10000 # int 

@@ -24,7 +24,7 @@ def get_mga_client():
         base_url="https://chat.int.bayer.com/api/v2" 
     )
 
-def chat_completion(messages, tools=None, model="gpt-4o"):
+def chat_completion(messages, tools=None, model="gpt-4o", max_tokens=None):
     client = get_mga_client()
     
     params = {
@@ -35,6 +35,9 @@ def chat_completion(messages, tools=None, model="gpt-4o"):
     if tools:
         params["tools"] = tools
         params["tool_choice"] = "auto"
+
+    if max_tokens is not None:
+        params["max_tokens"] = max_tokens
 
     response = client.chat.completions.create(**params)
     payload = response.model_dump()

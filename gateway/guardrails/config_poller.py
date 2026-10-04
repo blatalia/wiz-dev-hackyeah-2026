@@ -2,16 +2,18 @@
 environment variables, so guardrail functions always see live config without
 needing a restart or an explicit DynamoDB call per request.
 
-The DynamoDB item (configId="default") has two nested maps:
+The DynamoDB item (configId="default") has three nested maps:
     {
       "configId": "default",
       "pii_to_anonymize": {"ACCOUNT_NUMBER": true, "EMAIL": false, ...},
       "mcp_config": {"get_customer_contract_c014": true, ..., "num_tool_calls": 2},
+      "input_validation": {"max_tokens": 10000},
     }
 
-Those are mirrored into two comma-separated environment variables:
+Those are mirrored into three comma-separated environment variables:
     PII_TO_ANONYMIZE="ACCOUNT_NUMBER,ADDRESS,..."     # only keys that are true
     MCP_CONFIG="get_customer_contract_c014=true,...,num_tool_calls=2"  # every key
+    INPUT_VALIDATION="max_tokens=10000"               # every key
 
 Usage:
     from gateway.guardrails.config_poller import ConfigPoller
@@ -21,6 +23,7 @@ Usage:
     ...
     os.environ["PII_TO_ANONYMIZE"]
     os.environ["MCP_CONFIG"]
+    os.environ["INPUT_VALIDATION"]
     ...
     poller.stop()
 """
@@ -38,12 +41,14 @@ logger = logging.getLogger(__name__)
 
 PII_ENV_VAR: Final[str] = "PII_TO_ANONYMIZE"
 MCP_ENV_VAR: Final[str] = "MCP_CONFIG"
+INPUT_VALIDATION_ENV_VAR: Final[str] = "INPUT_VALIDATION"
 
 DEFAULT_TABLE_NAME: Final[str] = "ai-gateway-config"
 DEFAULT_CONFIG_ID: Final[str] = "default"
 DEFAULT_REGION: Final[str] = "eu-north-1"
 DEFAULT_POLL_INTERVAL_SECONDS: Final[float] = 60.0
 DEFAULT_NUM_TOOL_CALLS: Final[int] = 2
+DEFAULT_MAX_TOKENS: Final[int] = 10000
 
 
 def get_pii_to_anonymize() -> list[str]:
@@ -86,6 +91,23 @@ def is_tool_enabled(tool_name: str, default: bool = True) -> bool:
 def get_num_tool_calls(default: int = DEFAULT_NUM_TOOL_CALLS) -> int:
     """Read the latest tool-call limit, falling back when absent or invalid."""
     raw = get_mcp_config().get("num_tool_calls", "")
+    return int(raw) if raw.isdecimal() else default
+
+
+def get_input_validation_config() -> dict[str, str]:
+    """Return every INPUT_VALIDATION entry as raw strings, keyed by name."""
+    raw = os.environ.get(INPUT_VALIDATION_ENV_VAR, "")
+    entries: dict[str, str] = {}
+    for pair in raw.split(","):
+        key, sep, value = pair.partition("=")
+        if sep:
+            entries[key] = value
+    return entries
+
+
+def get_max_tokens(default: int = DEFAULT_MAX_TOKENS) -> int:
+    """Read the latest max_tokens cap, falling back when absent or invalid."""
+    raw = get_input_validation_config().get("max_tokens", "")
     return int(raw) if raw.isdecimal() else default
 
 
@@ -180,6 +202,7 @@ class ConfigPoller:
 
         pii_map = item.get("pii_to_anonymize", {}).get("M", {})
         mcp_map = item.get("mcp_config", {}).get("M", {})
+        input_validation_map = item.get("input_validation", {}).get("M", {})
 
         pii_enabled = sorted(
             key for key, av in pii_map.items() if av.get("BOOL") is True
@@ -189,10 +212,16 @@ class ConfigPoller:
             rendered = self._attribute_value_to_str(mcp_map[key])
             if rendered is not None:
                 mcp_entries.append(f"{key}={rendered}")
+        input_validation_entries = []
+        for key in sorted(input_validation_map):
+            rendered = self._attribute_value_to_str(input_validation_map[key])
+            if rendered is not None:
+                input_validation_entries.append(f"{key}={rendered}")
 
         new_values = {
             PII_ENV_VAR: ",".join(pii_enabled),
             MCP_ENV_VAR: ",".join(mcp_entries),
+            INPUT_VALIDATION_ENV_VAR: ",".join(input_validation_entries),
         }
 
         with self._lock:
