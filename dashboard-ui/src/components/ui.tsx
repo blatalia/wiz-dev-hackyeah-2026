@@ -33,10 +33,10 @@ export function useCountUp(value: number, duration = 900) {
   return shown;
 }
 
-export function Num({ value, digits = 0 }: { value: number; digits?: number }) {
+export function Num({ value, digits = 0, prefix = "" }: { value: number; digits?: number; prefix?: string }) {
   const shown = useCountUp(value);
   return (
-    <>{shown.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}</>
+    <>{prefix}{shown.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}</>
   );
 }
 

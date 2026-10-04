@@ -4,6 +4,7 @@ export type EventFilters = {
   from?: Date;
   to?: Date;
   outcome?: string;
+  eventType?: string;
   principalId?: string;
   reasonCode?: string;
   category?: string;
@@ -15,12 +16,14 @@ export type EventFilters = {
 export type EventSummary = {
   requestId: string;
   timestamp: string;
+  eventType: string | null;
   principalId: string | null;
   outcome: string;
   reasonCode: string | null;
   category: string | null;
   severity: string | null;
   latencyMs: number | null;
+  cost: number | null;
   configVersion: number | null;
 };
 
@@ -30,10 +33,12 @@ export type EventStats = {
   range: { from: string; to: string };
   bucket: StatsBucket;
   totals: {
-    total: number; allowed: number; flagged: number; blocked: number;
+    total: number; allowed: number; blocked: number;
     avgLatencyMs: number | null; p95LatencyMs: number | null;
+    totalCost: number | null;
   };
-  series: { start: string; allowed: number; flagged: number; blocked: number }[];
+  byType: { eventType: string; total: number; blocked: number }[];
+  series: { start: string; allowed: number; blocked: number }[];
   topReasons: { reasonCode: string; count: number }[];
   topPrincipals: { principalId: string; total: number; blocked: number }[];
 };
@@ -63,12 +68,14 @@ function toSummary(r: any): EventSummary {
   return {
     requestId: r.request_id,
     timestamp: r.ts.toISOString(),
+    eventType: null,
     principalId: r.principal_id,
     outcome: r.outcome,
     reasonCode: r.reason_code,
     category: r.primary_category,
     severity: r.severity,
     latencyMs: r.latency_ms,
+    cost: null,
     configVersion: r.config_version,
   };
 }
@@ -129,7 +136,6 @@ export class PostgresEventStore implements EventStore {
       pool.query(`
         SELECT count(*)::int AS total,
                count(*) FILTER (WHERE outcome = 'ALLOWED')::int AS allowed,
-               count(*) FILTER (WHERE outcome = 'FLAGGED')::int AS flagged,
                count(*) FILTER (WHERE outcome = 'BLOCKED')::int AS blocked,
                round(avg(latency_ms))::int AS "avgLatencyMs",
                round(percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms))::int AS "p95LatencyMs"
@@ -138,7 +144,6 @@ export class PostgresEventStore implements EventStore {
       pool.query(`
         SELECT to_char(date_trunc('${bucket}', ts AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS start,
                count(*) FILTER (WHERE outcome = 'ALLOWED')::int AS allowed,
-               count(*) FILTER (WHERE outcome = 'FLAGGED')::int AS flagged,
                count(*) FILTER (WHERE outcome = 'BLOCKED')::int AS blocked
         FROM gateway_events WHERE ${inRange}
         GROUP BY start ORDER BY start`, range),
@@ -146,7 +151,7 @@ export class PostgresEventStore implements EventStore {
       pool.query(`
         SELECT reason_code AS "reasonCode", count(*)::int AS count
         FROM gateway_events WHERE ${inRange} AND reason_code IS NOT NULL
-        GROUP BY reason_code ORDER BY count DESC LIMIT 5`, range),
+        GROUP BY reason_code ORDER BY count DESC, reason_code LIMIT 3`, range),
 
       pool.query(`
         SELECT principal_id AS "principalId",
@@ -159,7 +164,8 @@ export class PostgresEventStore implements EventStore {
     return {
       range: { from: from.toISOString(), to: to.toISOString() },
       bucket,
-      totals: totals.rows[0],
+      totals: { ...totals.rows[0], totalCost: null },
+      byType: [],
       series: series.rows,
       topReasons: topReasons.rows,
       topPrincipals: topPrincipals.rows,

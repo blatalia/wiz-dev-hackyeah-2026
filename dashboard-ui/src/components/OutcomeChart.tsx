@@ -51,7 +51,7 @@ function topRounded(x: number, y: number, w: number, h: number) {
   return `M${x},${y + h} V${y + r} Q${x},${y} ${x + r},${y} H${x + w - r} Q${x + w},${y} ${x + w},${y + r} V${y + h} Z`;
 }
 
-const total = (b: BucketCounts) => b.allowed + b.flagged + b.blocked;
+const total = (b: BucketCounts) => b.allowed + b.blocked;
 
 export function OutcomeChart({ buckets, unit, onSelect }: {
   buckets: BucketCounts[];
@@ -74,6 +74,8 @@ export function OutcomeChart({ buckets, unit, onSelect }: {
   const barW = Math.min(MAX_BAR, band * 0.6);
   const labelEvery = Math.max(1, Math.ceil(buckets.length / Math.max(Math.floor(plotW / 64), 1)));
 
+  const present = OUTCOMES.filter((o) => buckets.some((b) => b[o.key] > 0));
+  const legend = present.length > 0 ? present : OUTCOMES;
   const activeBucket = active !== null ? buckets[active] : null;
   const activeX = active !== null ? M.left + band * (active + 0.5) : 0;
 
@@ -93,7 +95,7 @@ export function OutcomeChart({ buckets, unit, onSelect }: {
       </div>
 
       <ul className="legend" style={{ marginBottom: 12 }}>
-        {OUTCOMES.map((o) => (
+        {legend.map((o) => (
           <li key={o.key} className={`status-${o.key}`}><span className="swatch" />{o.label}</li>
         ))}
       </ul>
@@ -102,7 +104,7 @@ export function OutcomeChart({ buckets, unit, onSelect }: {
         <div className="table-wrap" style={{ maxHeight: HEIGHT, overflowY: "auto" }}>
           <table>
             <thead>
-              <tr><th>{unit === "hour" ? "Hour" : "Day"}</th><th className="num">Allowed</th><th className="num">Flagged</th><th className="num">Blocked</th><th className="num">Total</th></tr>
+              <tr><th>{unit === "hour" ? "Hour" : "Day"}</th><th className="num">Allowed</th><th className="num">Blocked</th><th className="num">Total</th></tr>
             </thead>
             <tbody>
               {buckets.map((b) => (
@@ -110,7 +112,6 @@ export function OutcomeChart({ buckets, unit, onSelect }: {
                   onKeyDown={(e) => { if (e.key === "Enter") onSelect(b); }}>
                   <td>{bucketLabel(b.start, unit)}</td>
                   <td className="num">{b.allowed.toLocaleString("en-US")}</td>
-                  <td className="num">{b.flagged.toLocaleString("en-US")}</td>
                   <td className="num">{b.blocked.toLocaleString("en-US")}</td>
                   <td className="num">{total(b).toLocaleString("en-US")}</td>
                 </tr>
@@ -158,7 +159,7 @@ export function OutcomeChart({ buckets, unit, onSelect }: {
                     <rect
                       className="hit" x={M.left + band * i} y={M.top} width={band} height={plotH}
                       tabIndex={0} role="link"
-                      aria-label={`${bucketLabel(b.start, unit)}: ${b.allowed} allowed, ${b.flagged} flagged, ${b.blocked} blocked. Show events.`}
+                      aria-label={`${bucketLabel(b.start, unit)}: ${b.allowed} allowed, ${b.blocked} blocked. Show events.`}
                       onPointerMove={() => setActive(i)}
                       onFocus={() => setActive(i)}
                       onBlur={() => setActive(null)}
@@ -185,7 +186,7 @@ export function OutcomeChart({ buckets, unit, onSelect }: {
               }}
             >
               <div className="tooltip-title">{bucketLabel(activeBucket.start, unit)}</div>
-              {[...OUTCOMES].reverse().map((o) => (
+              {[...legend].reverse().map((o) => (
                 <div className={`tooltip-row status-${o.key}`} key={o.key}>
                   <span className="key" />
                   <strong>{activeBucket[o.key].toLocaleString("en-US")}</strong>

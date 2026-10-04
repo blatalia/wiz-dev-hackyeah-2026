@@ -28,7 +28,6 @@
   --danger-text: #b42323;
   --shadow: 0 20px 50px -28px rgba(0, 53, 95, 0.45);
   --good: #0ca30c;
-  --warning: #fab219;
   --critical: #d03b3b;
   --series-1: #00355f;
   --series-2: #3d6f9f;
@@ -265,7 +264,6 @@ ul { list-style: none; margin: 0; padding: 0; }
 .updated { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 .status-allowed { --status: var(--good); }
-.status-flagged { --status: var(--warning); }
 .status-blocked { --status: var(--critical); }
 .status-total { --status: var(--accent); }
 
@@ -274,7 +272,6 @@ ul { list-style: none; margin: 0; padding: 0; }
   width: 18px; height: 18px; border-radius: 50%; display: inline-grid; place-items: center;
   background: var(--status); color: #fff;
 }
-.status-flagged .outcome-icon, .outcome-icon.status-flagged { color: #1a1300; }
 .outcome.pill {
   padding: 3px 10px 3px 4px; border-radius: 999px;
   background: color-mix(in srgb, var(--status) 14%, transparent);
@@ -286,7 +283,8 @@ ul { list-style: none; margin: 0; padding: 0; }
   letter-spacing: 0.03em; background: var(--surface-2); border: 1px solid var(--border); color: var(--text-2);
 }
 
-.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.kpi-value small { font-size: 15px; font-weight: 500; letter-spacing: 0; color: var(--muted); margin-left: 4px; }
 .kpi { padding: 18px 20px 0; overflow: hidden; transition: transform 0.3s var(--ease), border-color 0.2s; }
 .kpi:hover { transform: translateY(-3px); border-color: var(--border-strong); }
 .kpi::after {
@@ -343,10 +341,6 @@ ul { list-style: none; margin: 0; padding: 0; }
 .mix-rows li { display: flex; align-items: center; gap: 10px; }
 .mix-rows .count { margin-left: auto; font-weight: 600; font-variant-numeric: tabular-nums; }
 .mix-rows .pct { width: 52px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 13px; }
-.divider { height: 1px; background: var(--border); margin: 18px 0; }
-.latency { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.latency-value { font-size: 22px; font-weight: 650; letter-spacing: -0.02em; }
-.latency-value small { font-size: 13px; font-weight: 500; color: var(--muted); margin-left: 3px; }
 
 .barlist { display: flex; flex-direction: column; gap: 14px; }
 .barlist li { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; align-items: baseline; }
@@ -598,8 +592,23 @@ tr.row.fresh { animation: fresh 2.6s ease-out both; }
 .group-head { padding: 20px 20px 0; }
 .group-actions { display: flex; gap: 2px; }
 .stepper { display: inline-flex; align-items: center; gap: 6px; }
-.stepper .input { width: 68px; height: 30px; padding: 0 6px; text-align: center; font-variant-numeric: tabular-nums; -moz-appearance: textfield; }
+.stepper .input { width: 88px; height: 30px; padding: 0 6px; text-align: center; font-variant-numeric: tabular-nums; -moz-appearance: textfield; }
 .stepper .input::-webkit-outer-spin-button, .stepper .input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .stepper .btn.icon { width: 30px; }
 @media (max-width: 1100px) { .config-grid { grid-template-columns: minmax(0, 1fr); } }
 .changes { max-height: min(52vh, 480px); overflow-y: auto; }
+
+.reason-cell { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reason-box {
+  padding: 12px 14px; border-radius: 12px; line-height: 1.55;
+  background: color-mix(in srgb, var(--critical) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--critical) 26%, transparent);
+}
+.kv { display: grid; grid-template-columns: minmax(120px, auto) 1fr; gap: 8px 16px; }
+.kv dt { color: var(--muted); font-size: 13px; }
+.kv dd { margin: 0; overflow-wrap: anywhere; }
+.config-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.barlist-label { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.side-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.side-col > :last-child { flex: 1; }
+.side-col .mix-bar { margin-bottom: 14px; }

@@ -16,9 +16,7 @@ shaped AS (
   SELECT *,
     to_char(t AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS ts_iso,
     to_char(t AT TIME ZONE 'UTC', 'YYYY-MM-DD')                   AS day,
-    CASE WHEN r_outcome < 0.70 THEN 'ALLOWED'
-         WHEN r_outcome < 0.85 THEN 'FLAGGED'
-         ELSE 'BLOCKED' END AS outcome,
+    CASE WHEN r_outcome < 0.80 THEN 'ALLOWED' ELSE 'BLOCKED' END AS outcome,
     (ARRAY['prompt-injection', 'data-exfiltration-attempt',
            'confidential-data', 'pii'])[r_threat + 1] AS threat,
     (ARRAY['INJECTION-001', 'EXFIL-001',
@@ -63,9 +61,7 @@ SELECT jsonb_build_object(
   'securityScan', jsonb_build_object(
     'performed',       true,
     'flagged',         outcome <> 'ALLOWED',
-    'highestSeverity', CASE outcome WHEN 'BLOCKED' THEN 'HIGH'
-                                    WHEN 'FLAGGED' THEN 'MEDIUM'
-                                    ELSE 'NONE' END,
+    'highestSeverity', CASE outcome WHEN 'BLOCKED' THEN 'HIGH' ELSE 'NONE' END,
     'findings', CASE WHEN outcome = 'ALLOWED' THEN '[]'::jsonb
       ELSE jsonb_build_array(jsonb_build_object(
              'scanner',  'security-scanner',

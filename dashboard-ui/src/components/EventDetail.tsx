@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Check, Copy, SearchX, X } from "lucide-react";
 import { ApiError, getEvent } from "../api";
+import { describeValue, humanize } from "../labels";
 import { href } from "../route";
 import { OutcomeBadge } from "./OutcomeBadge";
 import { State, highlightJson } from "./ui";
@@ -13,23 +14,15 @@ const STAGES = [
   { key: "llmLatencyMs", label: "LLM", series: 3 },
 ] as const;
 
-const ms = (v: unknown) => (typeof v === "number" ? `${v.toLocaleString("en-US")} ms` : "—");
-const text = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : String(v));
+const ms = (v: unknown) => (typeof v === "number" ? `${v.toLocaleString("en-US")} ms` : null);
+const has = (v: unknown) => v !== null && v !== undefined && v !== "";
+const isObject = (v: unknown): v is GatewayEvent => typeof v === "object" && v !== null && !Array.isArray(v);
 
 function formatTime(iso: unknown) {
-  if (typeof iso !== "string" || isNaN(Date.parse(iso))) return "—";
+  if (typeof iso !== "string" || isNaN(Date.parse(iso))) return null;
   return new Date(iso).toLocaleString("en-GB", {
     year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit",
   });
-}
-
-function Fact({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div>
-      <div className="fact-label">{label}</div>
-      <div className="fact-value">{children}</div>
-    </div>
-  );
 }
 
 function Section({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
@@ -58,63 +51,81 @@ function CopyButton({ value, label }: { value: string; label: string }) {
   );
 }
 
-function LatencyBreakdown({ performance }: { performance: GatewayEvent }) {
+function Body({ event }: { event: GatewayEvent }) {
+  const caller = isObject(event.caller) ? event.caller : {};
+  const request = isObject(event.request) ? event.request : {};
+  const decision = isObject(event.decision) ? event.decision : {};
+  const classification = isObject(event.classification) ? event.classification : null;
+  const securityScan = isObject(event.securityScan) ? event.securityScan : null;
+  const llm = isObject(event.llm) ? event.llm : null;
+  const performance = isObject(event.performance) ? event.performance : {};
+  const inner = isObject(event.event) ? event.event : {};
+
+  const reason = decision.reasonCode ?? inner.reason;
+  const type = event.eventType ?? inner.event_type;
+  const route = [request.method, request.route].filter(Boolean).join(" ");
+
+  const facts: [string, ReactNode][] = ([
+    ["Time", formatTime(event.timestamp)],
+    ["Type", has(type) ? humanize(String(type)) : null],
+    ["Latency", ms(performance.totalLatencyMs)],
+    ["Cost", typeof inner.cost === "number" ? describeValue("cost", inner.cost).text : null],
+    ["Passed safety check", typeof inner.is_safe === "boolean" ? (inner.is_safe ? "Yes" : "No") : null],
+    ["Caller", has(caller.principalId)
+      ? <a className="link" href={href("events", { caller: caller.principalId })}>{caller.principalId}</a> : null],
+    ["Client", has(caller.clientId) ? String(caller.clientId) : null],
+    ["Route", route || null],
+    ["HTTP status", has(decision.httpStatus) ? String(decision.httpStatus) : null],
+  ] as [string, ReactNode][]).filter(([, value]) => value !== null);
+
   const stages = STAGES
     .map((s) => ({ ...s, value: performance[s.key] }))
-    .filter((s): s is typeof s & { value: number } => typeof s.value === "number" && s.value > 0);
-  if (stages.length === 0) return <p className="muted">No per-stage timings were recorded.</p>;
-  return (
-    <>
-      <div className="mix-bar" role="img"
-        aria-label={stages.map((s) => `${s.label} ${s.value} ms`).join(", ")}>
-        {stages.map((s) => (
-          <span key={s.key} className={`series-${s.series}`} style={{ flexGrow: s.value }} />
-        ))}
-      </div>
-      <ul className="mix-rows">
-        {stages.map((s) => (
-          <li key={s.key} className={`series-${s.series}`}>
-            <span className="swatch" />{s.label}
-            <span className="count">{ms(s.value)}</span>
-          </li>
-        ))}
-      </ul>
-    </>
-  );
-}
-
-function Body({ event }: { event: GatewayEvent }) {
-  const { caller = {}, request = {}, decision = {}, classification = {}, securityScan = {}, llm = {}, performance = {} } = event;
-  const labels: GatewayEvent[] = Array.isArray(classification.labels) ? classification.labels : [];
-  const findings: GatewayEvent[] = Array.isArray(securityScan.findings) ? securityScan.findings : [];
+    .filter((s) => typeof s.value === "number" && s.value > 0);
+  const labels: GatewayEvent[] = Array.isArray(classification?.labels) ? classification.labels : [];
+  const findings: GatewayEvent[] = Array.isArray(securityScan?.findings) ? securityScan.findings : [];
+  const fields = Object.entries(inner).filter(([k, v]) => k !== "reason" && !isObject(v) && !Array.isArray(v));
   const json = JSON.stringify(event, null, 2);
 
   return (
     <div className="drawer-body rise">
       <div className="facts">
-        <Fact label="Time">{formatTime(event.timestamp)}</Fact>
-        <Fact label="Caller">
-          {caller.principalId
-            ? <a className="link" href={href("events", { caller: caller.principalId })}>{caller.principalId}</a>
-            : "—"}
-        </Fact>
-        <Fact label="Route">{[request.method, request.route].filter(Boolean).join(" ") || "—"}</Fact>
-        <Fact label="Client">{text(caller.clientId)}</Fact>
-        <Fact label="Reason">{text(decision.reasonCode)}</Fact>
-        <Fact label="HTTP status">{text(decision.httpStatus)}</Fact>
+        {facts.map(([label, value]) => (
+          <div key={label}>
+            <div className="fact-label">{label}</div>
+            <div className="fact-value">{value}</div>
+          </div>
+        ))}
       </div>
 
-      <Section title="Latency" aside={<span className="section-aside">{ms(performance.totalLatencyMs)} total</span>}>
-        <LatencyBreakdown performance={performance} />
-      </Section>
+      {has(reason) && (
+        <Section title="Reason">
+          <p className="reason-box">{String(reason)}</p>
+        </Section>
+      )}
 
-      <Section title="Classification"
-        aside={classification.primaryCategory && <span className="tag">{classification.primaryCategory}</span>}>
-        {labels.length === 0 ? <p className="muted">No labels were returned.</p> : (
+      {stages.length > 0 && (
+        <Section title="Latency by stage">
+          <div className="mix-bar" role="img" aria-label={stages.map((s) => `${s.label} ${s.value} ms`).join(", ")}>
+            {stages.map((s) => <span key={s.key} className={`series-${s.series}`} style={{ flexGrow: s.value }} />)}
+          </div>
+          <ul className="mix-rows">
+            {stages.map((s) => (
+              <li key={s.key} className={`series-${s.series}`}>
+                <span className="swatch" />{s.label}
+                <span className="count">{ms(s.value)}</span>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
+      {classification && (labels.length > 0 || has(classification.primaryCategory)) && (
+        <Section title="Classification"
+          aside={has(classification.primaryCategory) && <span className="tag">{classification.primaryCategory}</span>}>
           <ul className="scores">
             {labels.map((l, i) => (
               <li key={i}>
-                <span>{text(l.name)}</span>
+                <span>{String(l.name ?? "—")}</span>
                 <span className="score-track">
                   <span className="score-bar" style={{ width: `${Math.min(Math.max(Number(l.score) || 0, 0), 1) * 100}%` }} />
                 </span>
@@ -122,38 +133,54 @@ function Body({ event }: { event: GatewayEvent }) {
               </li>
             ))}
           </ul>
-        )}
-      </Section>
+        </Section>
+      )}
 
-      <Section title="Security scan"
-        aside={securityScan.highestSeverity && <span className="tag">{securityScan.highestSeverity}</span>}>
-        {findings.length === 0
-          ? <p className="muted">{securityScan.performed === false ? "The scan was not run." : "No findings."}</p>
-          : (
-            <ul className="findings">
-              {findings.map((f, i) => (
-                <li key={i}>
-                  <div>
-                    <div className="fact-value">{text(f.category)}</div>
-                    <div className="fact-label mono">{[f.ruleId, f.scanner].filter(Boolean).join(" · ")}</div>
-                  </div>
-                  {f.severity && <span className="tag">{f.severity}</span>}
-                </li>
-              ))}
-            </ul>
+      {securityScan && (
+        <Section title="Security scan"
+          aside={has(securityScan.highestSeverity) && <span className="tag">{securityScan.highestSeverity}</span>}>
+          {findings.length === 0
+            ? <p className="muted">{securityScan.performed === false ? "The scan was not run." : "No findings."}</p>
+            : (
+              <ul className="findings">
+                {findings.map((f, i) => (
+                  <li key={i}>
+                    <div>
+                      <div className="fact-value">{String(f.category ?? "—")}</div>
+                      <div className="fact-label mono">{[f.ruleId, f.scanner].filter(Boolean).join(" · ")}</div>
+                    </div>
+                    {has(f.severity) && <span className="tag">{f.severity}</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+        </Section>
+      )}
+
+      {llm && (
+        <Section title="LLM call">
+          {llm.called === false ? <p className="muted">The request was stopped before reaching the model.</p> : (
+            <dl className="kv">
+              {Object.entries(llm).filter(([, v]) => !isObject(v) && !Array.isArray(v)).map(([k, v]) => {
+                const d = describeValue(k, v);
+                return [<dt key={`${k}-label`}>{d.label}</dt>, <dd key={k}>{d.text}</dd>];
+              })}
+            </dl>
           )}
-      </Section>
+        </Section>
+      )}
 
-      <Section title="LLM call">
-        {llm.called === false ? <p className="muted">The request was stopped before reaching the model.</p> : (
-          <div className="facts">
-            <Fact label="Provider">{text(llm.provider)}</Fact>
-            <Fact label="Model">{text(llm.model)}</Fact>
-            <Fact label="Input tokens">{typeof llm.inputTokens === "number" ? llm.inputTokens.toLocaleString("en-US") : "—"}</Fact>
-            <Fact label="Output tokens">{typeof llm.outputTokens === "number" ? llm.outputTokens.toLocaleString("en-US") : "—"}</Fact>
-          </div>
-        )}
-      </Section>
+      {fields.length > 0 && (
+        <Section title="Event fields">
+          <dl className="kv">
+            {fields.map(([k, v]) => {
+              const d = describeValue(k, v);
+              const text = /timestamp|_at$/i.test(k) ? formatTime(v) ?? d.text : d.text;
+              return [<dt key={`${k}-label`}>{d.label}</dt>, <dd key={k}>{text}</dd>];
+            })}
+          </dl>
+        </Section>
+      )}
 
       <details className="raw">
         <summary>Raw event</summary>
