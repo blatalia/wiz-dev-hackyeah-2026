@@ -8,6 +8,7 @@ import os
 import time
 import uuid
 from collections import deque
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -46,6 +47,7 @@ TOOLS = {
 }
 
 GATEWAY_DECISION: TypeAlias = Literal["ALLOW", "REJECT"]
+request_user_email: ContextVar[str] = ContextVar("request_user_email", default="anonymous")
 
 _anonymizer = Anonymizer()
 _anonymizer_lock = Lock()
@@ -230,6 +232,7 @@ def _log_event(
         "is_safe": is_safe,
         "reason": None if is_safe else str(reason or "unspecified"),
         **extra,
+        "user_email": request_user_email.get(),
     }
     metrics = get_metrics()
     try:
@@ -245,6 +248,7 @@ def _log_event(
                     "requestId": event_id,
                     "timestamp": timestamp,
                     "eventType": event_type,
+                    "caller": {"principalId": event["user_email"]},
                     "decision": {"outcome": outcome, "reasonCode": event["reason"]},
                     "performance": {
                         "totalLatencyMs": round(event["processing_time_seconds"] * 1000)
@@ -269,7 +273,10 @@ def _log_event(
             tmp_path.write_text(json.dumps(metrics, indent=2, ensure_ascii=False), encoding="utf-8")
             tmp_path.replace(METRICS_LOG_PATH)
     except Exception as exc:
-        logger.warning("Could not write gateway logs: %s", type(exc).__name__)
+        logger.warning(
+            "Could not write gateway logs: %s | user_email=%s",
+            type(exc).__name__, request_user_email.get(),
+        )
 
 
 def _log_sql_check(timestamp: str, started: float, is_sql: bool) -> None:
@@ -277,6 +284,7 @@ def _log_sql_check(timestamp: str, started: float, is_sql: bool) -> None:
     event = {
         "event_id": str(uuid.uuid4()),
         "event_type": "sql_check",
+        "user_email": request_user_email.get(),
         "timestamp": timestamp,
         "processing_time_seconds": time.perf_counter() - started,
         "is_sql": is_sql,
@@ -287,7 +295,10 @@ def _log_sql_check(timestamp: str, started: float, is_sql: bool) -> None:
             with EVENTS_LOG_PATH.open("a", encoding="utf-8") as events_file:
                 events_file.write(json.dumps(event, ensure_ascii=False) + "\n")
     except OSError as exc:
-        logger.warning("Could not write gateway logs: %s", type(exc).__name__)
+        logger.warning(
+            "Could not write gateway logs: %s | user_email=%s",
+            type(exc).__name__, request_user_email.get(),
+        )
 
 
 _sql_detector = DetectSQL()

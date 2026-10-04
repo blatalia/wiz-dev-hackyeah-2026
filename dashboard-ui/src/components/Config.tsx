@@ -16,13 +16,31 @@ function draftOf(config: GatewayConfig) {
   return draft;
 }
 
+function toColumns(groups: ConfigGroup[]): ConfigGroup[][] {
+  const columns: { height: number; groups: ConfigGroup[] }[] = [{ height: 0, groups: [] }, { height: 0, groups: [] }];
+  for (const g of [...groups].sort((a, b) => b.settings.length - a.settings.length)) {
+    const shorter = columns[0].height <= columns[1].height ? columns[0] : columns[1];
+    shorter.groups.push(g);
+    shorter.height += g.settings.length + 2;
+  }
+  return columns
+    .map((c) => c.groups.sort((a, b) => a.key.localeCompare(b.key)))
+    .filter((c) => c.length > 0)
+    .sort((a, b) => a[0].key.localeCompare(b[0].key));
+}
+
+function stepFor(value: number) {
+  return value < 100 ? 1 : 10 ** (Math.floor(Math.log10(value)) - 1);
+}
+
 function NumberField({ label, value, disabled, onChange }: {
   label: string; value: number; disabled: boolean; onChange: (value: number) => void;
 }) {
+  const step = stepFor(value);
   return (
     <span className="stepper">
       <button type="button" className="btn small icon" aria-label={`Decrease ${label}`}
-        disabled={disabled || value <= 0} onClick={() => onChange(Math.max(value - 1, 0))}>
+        disabled={disabled || value <= 0} onClick={() => onChange(Math.max(value - step, 0))}>
         <Minus size={14} />
       </button>
       <input
@@ -34,7 +52,7 @@ function NumberField({ label, value, disabled, onChange }: {
         }}
       />
       <button type="button" className="btn small icon" aria-label={`Increase ${label}`}
-        disabled={disabled} onClick={() => onChange(value + 1)}>
+        disabled={disabled} onClick={() => onChange(value + step)}>
         <Plus size={14} />
       </button>
     </span>
@@ -183,9 +201,13 @@ export function Config() {
         </State>
       ) : (
         <div className="config-grid">
-          {config.groups.map((g, i) => (
-            <Group key={g.key} group={g} index={i + 1} draft={draft} saved={saved} saving={saving}
-              setValue={(patch) => setDraft({ ...draft, ...patch })} />
+          {toColumns(config.groups).map((column, ci) => (
+            <div key={column[0].key} className="config-col">
+              {column.map((g, i) => (
+                <Group key={g.key} group={g} index={ci + i + 1} draft={draft} saved={saved} saving={saving}
+                  setValue={(patch) => setDraft({ ...draft, ...patch })} />
+              ))}
+            </div>
           ))}
         </div>
       )}

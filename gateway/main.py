@@ -81,6 +81,7 @@ def chat(request: ChatRequest):
         return PlainTextResponse("Please enter a prompt.", status_code=400)
 
     stage = "input check"
+    email_token = guardrails.request_user_email.set(request.user_email or "anonymous")
     try:
         if guardrails.initial_input_check(prompt) != "ALLOW":
             return PlainTextResponse(
@@ -135,7 +136,10 @@ def chat(request: ChatRequest):
         turn = ConversationTurn(prompt=prompt, answer=text, tool_results=tool_results)
         return ChatResponse(text=text, history=[*request.history, turn])
     except RuntimeError:
-        logger.error("MGA_TOKEN is not set in the gateway process environment.")
+        logger.error(
+            "MGA_TOKEN is not set in the gateway process environment. | user_email=%s",
+            request.user_email or "anonymous",
+        )
         return PlainTextResponse(
             "The gateway is missing MGA_TOKEN. Set it in the server environment and restart.",
             status_code=503,
@@ -143,17 +147,20 @@ def chat(request: ChatRequest):
     except Exception as exc:
         # Do not log prompts, tool contents, credentials or provider response bodies.
         logger.error(
-            "Chat failed during %s: %s (HTTP status: %s)",
+            "Chat failed during %s: %s (HTTP status: %s) | user_email=%s",
             stage,
             type(exc).__name__,
             getattr(exc, "status_code", None),
+            request.user_email or "anonymous",
         )
         return PlainTextResponse("The gateway could not process your request.", status_code=502)
     finally:
+        guardrails.request_user_email.reset(email_token)
         logger.info(
-            "Total tokens spent: %s | Total cost: $%.8f",
+            "Total tokens spent: %s | Total cost: $%.8f | user_email=%s",
             guardrails.total_tokens_spent,
             guardrails.total_cost_spent,
+            request.user_email or "anonymous",
         )
 
 

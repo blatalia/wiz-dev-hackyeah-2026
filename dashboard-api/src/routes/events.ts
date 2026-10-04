@@ -2,12 +2,12 @@ import { Router } from "express";
 import { PostgresEventStore, decodeCursor, type EventStore } from "../eventStore";
 import { DynamoEventStore } from "../dynamoEventStore";
 
-const store: EventStore = process.env.EVENT_STORE === "dynamo"
-  ? new DynamoEventStore()
-  : new PostgresEventStore();
+const store: EventStore = process.env.EVENT_STORE === "postgres"
+  ? new PostgresEventStore()
+  : new DynamoEventStore();
 export const eventsRouter = Router();
 
-const OUTCOMES = ["ALLOWED", "FLAGGED", "BLOCKED"];
+const OUTCOMES = ["ALLOWED", "BLOCKED"];
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 function str(v: unknown): string | undefined {
@@ -67,6 +67,7 @@ eventsRouter.get("/", async (req, res) => {
   res.json(await store.listEvents({
     from, to, outcome, cursor, limit,
     principalId: str(q.principalId),
+    eventType: str(q.eventType),
     reasonCode: str(q.reasonCode),
     category: str(q.category),
     severity: str(q.severity)?.toUpperCase(),

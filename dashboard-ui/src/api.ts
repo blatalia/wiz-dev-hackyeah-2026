@@ -5,12 +5,14 @@ export type User = { sub: string; email: string; roles: string[] };
 export type EventSummary = {
   requestId: string;
   timestamp: string;
+  eventType: string | null;
   principalId: string | null;
   outcome: string;
   reasonCode: string | null;
   category: string | null;
   severity: string | null;
   latencyMs: number | null;
+  cost: number | null;
   configVersion: number | null;
 };
 
@@ -18,15 +20,17 @@ export type EventPage = { items: EventSummary[]; nextCursor: string | null };
 
 export type StatsBucket = "day" | "hour";
 
-export type BucketCounts = { start: string; allowed: number; flagged: number; blocked: number };
+export type BucketCounts = { start: string; allowed: number; blocked: number };
 
 export type EventStats = {
   range: { from: string; to: string };
   bucket: StatsBucket;
   totals: {
-    total: number; allowed: number; flagged: number; blocked: number;
+    total: number; allowed: number; blocked: number;
     avgLatencyMs: number | null; p95LatencyMs: number | null;
+    totalCost: number | null;
   };
+  byType: { eventType: string; total: number; blocked: number }[];
   series: BucketCounts[];
   topReasons: { reasonCode: string; count: number }[];
   topPrincipals: { principalId: string; total: number; blocked: number }[];
@@ -99,6 +103,7 @@ export type EventQuery = {
   from?: string;
   to?: string;
   outcome?: string;
+  eventType?: string;
   principalId?: string;
   reasonCode?: string;
   severity?: string;
@@ -138,3 +143,4 @@ export function updateConfig(changes: ConfigChange[]) {
     body: JSON.stringify({ changes }),
   });
 }
+

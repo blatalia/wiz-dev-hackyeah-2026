@@ -6,6 +6,7 @@ import { pool } from "./db";
 import { authRouter } from "./routes/auth";
 import { eventsRouter } from "./routes/events";
 import { configRouter } from "./routes/config";
+import { metricsRouter } from "./routes/metrics";
 import { requireAuth, requireRole } from "./middleware/requireAuth";
 
 const app = express();
@@ -22,6 +23,7 @@ app.get("/health", async (_req, res) => {
 app.use("/auth", authRouter);
 app.use("/events", requireAuth, requireRole("admin"), eventsRouter);
 app.use("/config", requireAuth, requireRole("admin"), configRouter);
+app.use("/metrics", requireAuth, requireRole("admin"), metricsRouter);
 
 app.get("/admin/ping", requireAuth, requireRole("admin"), (req, res) => {
   res.json({ message: `Hello, ${req.user?.email}` });

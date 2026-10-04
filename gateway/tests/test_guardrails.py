@@ -4,6 +4,7 @@ import json
 import os
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -29,6 +30,37 @@ class GuardrailsTests(unittest.TestCase):
         }
         with patch.dict("sys.modules", modules):
             cls.guardrails = importlib.import_module("gateway.guardrails.guardrails")
+
+    def test_request_email_is_in_local_and_dynamodb_events(self):
+        with (
+            TemporaryDirectory() as directory,
+            patch.object(self.guardrails, "LOG_DIR", Path(directory)),
+            patch.object(self.guardrails, "EVENTS_LOG_PATH", Path(directory) / "events.jsonl"),
+            patch.object(self.guardrails, "METRICS_LOG_PATH", Path(directory) / "metrics.json"),
+            patch.object(self.guardrails, "_put_dynamodb") as put_item,
+        ):
+            for email in ("bianka@test.com", "filip@test.com", "anonymous"):
+                token = self.guardrails.request_user_email.set(email)
+                try:
+                    for event_type in ("user_input", "llm_call"):
+                        for allowed in (True, False):
+                            self.guardrails._log_event(
+                                event_type, self.guardrails._now(), 0, allowed, "test"
+                            )
+                            item = put_item.call_args_list[-2].args[1]
+                            self.assertEqual(item["caller"]["principalId"], email)
+                            self.assertEqual(item["event"]["user_email"], email)
+                    self.guardrails._log_sql_check(self.guardrails._now(), 0, False)
+                finally:
+                    self.guardrails.request_user_email.reset(token)
+            events = [
+                json.loads(line)
+                for line in self.guardrails.EVENTS_LOG_PATH.read_text().splitlines()
+            ]
+            self.assertEqual(
+                [event["user_email"] for event in events],
+                [email for email in ("bianka@test.com", "filip@test.com", "anonymous") for _ in range(5)],
+            )
 
     def test_missing_mga_token_does_not_fall_back_to_another_api_key(self):
         inference = self.guardrails.inference
