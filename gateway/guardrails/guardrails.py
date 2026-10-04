@@ -13,6 +13,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Literal, TypeAlias
 
+from anonymization_utils.anonymizer import Anonymizer
 from llm import inference
 
 from gateway.guardrails.config_poller import is_tool_enabled
@@ -40,6 +41,14 @@ TOOLS = {
 }
 
 GATEWAY_DECISION: TypeAlias = Literal["ALLOW", "REJECT"]
+
+_anonymizer = Anonymizer()
+_anonymizer_lock = Lock()
+
+
+def _anonymize(text: str) -> str:
+    with _anonymizer_lock:
+        return _anonymizer.anonymize(text)
 
 
 def _enabled_tools() -> dict[str, Any]:
@@ -114,6 +123,12 @@ def _record_llm_output_check(allowed: bool, reason: Any = None) -> None:
 def _timed_chat_completion(**kwargs):
     """Call the LLM, recording output count and latency (or an erroneous output)."""
     global total_llm_outputs, total_llm_latency_seconds, total_llm_calls_timed
+    kwargs["messages"] = [
+        {**message, "content": _anonymize(message["content"])}
+        if message["role"] != "system"
+        else dict(message)
+        for message in kwargs["messages"]
+    ]
     timestamp = _now()
     started = time.perf_counter()
     try:
@@ -198,7 +213,7 @@ def initial_input_check(user_input: str) -> GATEWAY_DECISION:
     timestamp = _now()
     started = time.perf_counter()
     try:
-        result = inference.judge_user_input(user_input)
+        result = inference.judge_user_input(_anonymize(user_input))
     except Exception as exc:
         _record_user_input(False, type(exc).__name__)
         _log_event("user_input", timestamp, started, False, type(exc).__name__)

@@ -1,7 +1,7 @@
 import csv
 from pathlib import Path
 
-from eu_pii import PIIDetector
+from .eu_pii import PIIDetector
 
 # from eu_pii import PIIDetector
 
