@@ -60,9 +60,11 @@ Point Streamlit's `GATEWAY_URL` at `http://localhost:8000` locally or
 `http://gateway:8000` when both containers share a network and the gateway is named
 `gateway`. Port 8000 must be published if accessed from outside the container network.
 
-Output checks and end-to-end processing (`llm_output_check`, `process_request`)
-remain stubs. Tool access is now enforced via `MCP_CONFIG` (see below); the other
-checks still have no enforcement.
+`llm_output_check` uses `inference.judge_llm_response` on anonymized output and
+returns `ALLOW` only for an explicit safe result. It records token/cost usage,
+decisions and failures like the input check. `/chat` does not yet invoke it.
+End-to-end processing (`process_request`) and tool-output checks remain stubs.
+Tool access is enforced via `MCP_CONFIG` (see below).
 
 ## Tool-call limit
 

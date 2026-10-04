@@ -416,8 +416,20 @@ def send_input_to_llm(
 
 
 def llm_output_check(llm_output: str) -> GATEWAY_DECISION:
-    """Check LLM output for PII, addresses and financial values."""
-    pass
+    """Check outgoing content using the inference security evaluator."""
+    timestamp = _now()
+    started = time.perf_counter()
+    try:
+        result = inference.judge_llm_response(_anonymize(llm_output))
+    except Exception as exc:
+        _record_llm_output_check(False, type(exc).__name__)
+        _log_event("llm_output", timestamp, started, False, type(exc).__name__)
+        raise
+    _record_usage(result)
+    is_safe = result.get("is_safe") is True
+    _record_llm_output_check(is_safe, result.get("reason"))
+    _log_event("llm_output", timestamp, started, is_safe, result.get("reason"))
+    return "ALLOW" if is_safe else "REJECT"
 
 
 def tool_access_check(user_id: str, tool_name: str) -> GATEWAY_DECISION:
