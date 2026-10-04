@@ -1,8 +1,7 @@
-import { Check, TriangleAlert, X } from "lucide-react";
+import { Check, X } from "lucide-react";
 
 export const OUTCOMES = [
   { key: "allowed", value: "ALLOWED", label: "Allowed", Icon: Check },
-  { key: "flagged", value: "FLAGGED", label: "Flagged", Icon: TriangleAlert },
   { key: "blocked", value: "BLOCKED", label: "Blocked", Icon: X },
 ] as const;
 

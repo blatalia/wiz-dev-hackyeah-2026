@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { CalendarClock, ChevronDown, CloudOff, Hash, Inbox, LoaderCircle, RotateCw, Search, Tag, X } from "lucide-react";
 import { getEvents, type EventSummary } from "../api";
 import type { TimeRange } from "../App";
+import { describeValue, humanize } from "../labels";
 import type { Params } from "../route";
 import { EventDetail } from "./EventDetail";
 import { OUTCOMES, OutcomeBadge } from "./OutcomeBadge";
@@ -35,6 +36,7 @@ export function Events({ range, params, setParams }: {
   setParams: (patch: Params) => void;
 }) {
   const outcome = params.outcome ?? "";
+  const type = params.type ?? "";
   const severity = params.severity ?? "";
   const caller = params.caller ?? "";
   const reason = params.reason ?? "";
@@ -51,6 +53,7 @@ export function Events({ range, params, setParams }: {
   const [error, setError] = useState<string | null>(null);
   const [fresh, setFresh] = useState<Set<string>>(new Set());
   const [attempt, setAttempt] = useState(0);
+  const [seen, setSeen] = useState({ types: [] as string[], caller: false, severity: false, cost: false });
 
   const itemsRef = useRef(items);
   itemsRef.current = items;
@@ -58,9 +61,24 @@ export function Events({ range, params, setParams }: {
 
   useEffect(() => setCallerInput(caller), [caller]);
 
-  const query = { from, to, outcome, severity, principalId: caller, reasonCode: reason, limit: PAGE_SIZE };
-  const filterKey = JSON.stringify([range.id, outcome, severity, caller, reason, params.from, params.to, attempt]);
-  const filtered = Boolean(outcome || severity || caller || reason || hasWindow);
+  useEffect(() => {
+    setSeen((s) => {
+      const types = [...new Set([...s.types, ...items.map((e) => e.eventType).filter((t): t is string => Boolean(t))])].sort();
+      const next = {
+        types,
+        caller: s.caller || items.some((e) => e.principalId),
+        severity: s.severity || items.some((e) => e.severity),
+        cost: s.cost || items.some((e) => e.cost !== null),
+      };
+      return JSON.stringify(next) === JSON.stringify(s) ? s : next;
+    });
+  }, [items]);
+
+  const query = {
+    from, to, outcome, eventType: type, severity, principalId: caller, reasonCode: reason, limit: PAGE_SIZE,
+  };
+  const filterKey = JSON.stringify([range.id, outcome, type, severity, caller, reason, params.from, params.to, attempt]);
+  const filtered = Boolean(outcome || type || severity || caller || reason || hasWindow);
 
   useEffect(() => {
     let stale = false;
@@ -104,8 +122,14 @@ export function Events({ range, params, setParams }: {
   }
 
   const clearAll = () => setParams({
-    outcome: undefined, severity: undefined, caller: undefined, reason: undefined, from: undefined, to: undefined,
+    outcome: undefined, type: undefined, severity: undefined, caller: undefined, reason: undefined,
+    from: undefined, to: undefined,
   });
+
+  const typeOptions = [...new Set([...seen.types, ...(type ? [type] : [])])].sort();
+  const showType = typeOptions.length > 0;
+  const showCaller = seen.caller || Boolean(caller);
+  const showSeverity = seen.severity || Boolean(severity);
 
   return (
     <div className="stack">
@@ -115,21 +139,34 @@ export function Events({ range, params, setParams }: {
           <Segmented label="Outcome" options={OUTCOME_OPTIONS} value={outcome}
             onChange={(v) => setParams({ outcome: v || undefined })} />
         </div>
-        <label className="field">
-          Severity
-          <select className="input" value={severity} onChange={(e) => setParams({ severity: e.target.value || undefined })}>
-            <option value="">All</option>
-            {SEVERITIES.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </label>
-        <form className="field grow" onSubmit={(e) => { e.preventDefault(); setParams({ caller: callerInput.trim() || undefined }); }}>
-          <label htmlFor="caller-filter">Caller</label>
-          <span className="input-icon">
-            <Search size={15} />
-            <input id="caller-filter" className="input" placeholder="user_12345, then Enter" value={callerInput}
-              onChange={(e) => setCallerInput(e.target.value)} />
-          </span>
-        </form>
+        {showType && (
+          <label className="field">
+            Type
+            <select className="input" value={type} onChange={(e) => setParams({ type: e.target.value || undefined })}>
+              <option value="">All</option>
+              {typeOptions.map((t) => <option key={t} value={t}>{humanize(t)}</option>)}
+            </select>
+          </label>
+        )}
+        {showSeverity && (
+          <label className="field">
+            Severity
+            <select className="input" value={severity} onChange={(e) => setParams({ severity: e.target.value || undefined })}>
+              <option value="">All</option>
+              {SEVERITIES.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </label>
+        )}
+        {showCaller && (
+          <form className="field grow" onSubmit={(e) => { e.preventDefault(); setParams({ caller: callerInput.trim() || undefined }); }}>
+            <label htmlFor="caller-filter">Caller</label>
+            <span className="input-icon">
+              <Search size={15} />
+              <input id="caller-filter" className="input" placeholder="user_12345, then Enter" value={callerInput}
+                onChange={(e) => setCallerInput(e.target.value)} />
+            </span>
+          </form>
+        )}
         <form className="field grow" onSubmit={(e) => {
           e.preventDefault();
           if (idInput.trim()) { setParams({ event: idInput.trim() }); setIdInput(""); }
@@ -137,13 +174,13 @@ export function Events({ range, params, setParams }: {
           <label htmlFor="id-search">Open by request ID</label>
           <span className="input-icon">
             <Hash size={15} />
-            <input id="id-search" className="input mono" placeholder="req_…, then Enter" value={idInput}
+            <input id="id-search" className="input mono" placeholder="Request ID, then Enter" value={idInput}
               onChange={(e) => setIdInput(e.target.value)} />
           </span>
         </form>
       </div>
 
-      {(hasWindow || reason || filtered) && (
+      {filtered && (
         <div className="chips">
           {hasWindow && (
             <span className="chip">
@@ -157,9 +194,7 @@ export function Events({ range, params, setParams }: {
               <button aria-label="Remove reason filter" onClick={() => setParams({ reason: undefined })}><X size={13} /></button>
             </span>
           )}
-          {filtered && (
-            <button className="btn small ghost" onClick={clearAll}><X size={14} />Clear all filters</button>
-          )}
+          <button className="btn small ghost" onClick={clearAll}><X size={14} />Clear all filters</button>
         </div>
       )}
 
@@ -181,8 +216,15 @@ export function Events({ range, params, setParams }: {
             <table>
               <thead>
                 <tr>
-                  <th>Time</th><th>Request</th><th>Caller</th><th>Outcome</th>
-                  <th>Reason</th><th>Severity</th><th className="num">Latency</th>
+                  <th>Time</th>
+                  <th>Request</th>
+                  {showType && <th>Type</th>}
+                  {showCaller && <th>Caller</th>}
+                  <th>Outcome</th>
+                  <th>Reason</th>
+                  {showSeverity && <th>Severity</th>}
+                  <th className="num">Latency</th>
+                  {seen.cost && <th className="num">Cost</th>}
                 </tr>
               </thead>
               <tbody>
@@ -196,12 +238,18 @@ export function Events({ range, params, setParams }: {
                     onKeyDown={(k) => { if (k.key === "Enter") setParams({ event: e.requestId }); }}
                   >
                     <td className="nowrap">{formatTime(e.timestamp)}</td>
-                    <td className="mono nowrap">{e.requestId}</td>
-                    <td className="nowrap">{e.principalId ?? "—"}</td>
+                    <td className="mono nowrap" title={e.requestId}>
+                      {e.requestId.length > 18 ? `${e.requestId.slice(0, 8)}…${e.requestId.slice(-4)}` : e.requestId}
+                    </td>
+                    {showType && <td className="nowrap">{e.eventType ? <span className="tag">{humanize(e.eventType)}</span> : "—"}</td>}
+                    {showCaller && <td className="nowrap">{e.principalId ?? "—"}</td>}
                     <td><OutcomeBadge outcome={e.outcome} pill /></td>
-                    <td>{e.reasonCode ?? <span className="muted">—</span>}</td>
-                    <td>{e.severity ? <span className="tag">{e.severity}</span> : "—"}</td>
+                    <td className="reason-cell" title={e.reasonCode ?? undefined}>
+                      {e.reasonCode ?? <span className="muted">—</span>}
+                    </td>
+                    {showSeverity && <td>{e.severity ? <span className="tag">{e.severity}</span> : "—"}</td>}
                     <td className="num">{e.latencyMs === null ? "—" : `${e.latencyMs.toLocaleString("en-US")} ms`}</td>
+                    {seen.cost && <td className="num">{e.cost === null ? "—" : describeValue("cost", e.cost).text}</td>}
                   </tr>
                 ))}
               </tbody>

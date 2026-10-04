@@ -28,12 +28,14 @@ function toSummary(e: Item): EventSummary {
   return {
     requestId: e.requestId,
     timestamp: e.timestamp,
+    eventType: e.eventType ?? e.event?.event_type ?? null,
     principalId: e.caller?.principalId ?? null,
     outcome: e.decision?.outcome,
-    reasonCode: e.decision?.reasonCode ?? null,
+    reasonCode: e.decision?.reasonCode ?? e.event?.reason ?? null,
     category: e.classification?.primaryCategory ?? null,
     severity: e.securityScan?.highestSeverity ?? null,
     latencyMs: e.performance?.totalLatencyMs ?? null,
+    cost: typeof e.event?.cost === "number" ? e.event.cost : null,
     configVersion: e.decision?.configVersion ?? null,
   };
 }
@@ -90,6 +92,7 @@ export class DynamoEventStore implements EventStore {
       conditions.push(`${path.map((p) => `#${p}`).join(".")} = :f${conditions.length}`);
     };
     add(["decision", "outcome"], f.outcome);
+    add(["eventType"], f.eventType);
     add(["caller", "principalId"], f.principalId);
     add(["decision", "reasonCode"], f.reasonCode);
     add(["classification", "primaryCategory"], f.category);
@@ -158,22 +161,25 @@ export class DynamoEventStore implements EventStore {
     const fromIso = from.toISOString();
     const toIso = to.toISOString();
 
-    const totals = { total: 0, allowed: 0, flagged: 0, blocked: 0 };
-    const series = new Map<string, { start: string; allowed: number; flagged: number; blocked: number }>();
+    const totals = { total: 0, allowed: 0, blocked: 0 };
+    const series = new Map<string, { start: string; allowed: number; blocked: number }>();
     const reasons = new Map<string, number>();
     const principals = new Map<string, { principalId: string; total: number; blocked: number }>();
     const latencies: number[] = [];
+    const types = new Map<string, { eventType: string; total: number; blocked: number }>();
+    let cost: number | null = null;
 
     for (const day of daysDesc(dayOf(toIso), dayOf(fromIso))) {
       const lo = dayOf(fromIso) === day ? fromIso : day;
       const hi = dayOf(toIso) === day ? toIso : `${day}~`;
       await this.queryDay(day, lo, hi, { names: {}, values: {} }, undefined, (e) => {
         const s = toSummary(e);
-        const key = ({ ALLOWED: "allowed", FLAGGED: "flagged", BLOCKED: "blocked" } as const)[s.outcome as string];
+        const key = ({ ALLOWED: "allowed", BLOCKED: "blocked" } as const)[s.outcome as string];
 
         totals.total++;
-        const start = bucket === "hour" ? `${s.timestamp.slice(0, 13)}:00:00Z` : `${day}T00:00:00Z`;
-        const d = series.get(start) ?? { start, allowed: 0, flagged: 0, blocked: 0 };
+        const utc = new Date(s.timestamp).toISOString();
+        const start = bucket === "hour" ? `${utc.slice(0, 13)}:00:00Z` : `${utc.slice(0, 10)}T00:00:00Z`;
+        const d = series.get(start) ?? { start, allowed: 0, blocked: 0 };
         series.set(start, d);
         if (key) { totals[key]++; d[key]++; }
 
@@ -185,6 +191,13 @@ export class DynamoEventStore implements EventStore {
           if (key === "blocked") p.blocked++;
         }
         if (typeof s.latencyMs === "number") latencies.push(s.latencyMs);
+        if (s.cost !== null) cost = (cost ?? 0) + s.cost;
+        if (s.eventType) {
+          const t = types.get(s.eventType) ?? { eventType: s.eventType, total: 0, blocked: 0 };
+          types.set(s.eventType, t);
+          t.total++;
+          if (key === "blocked") t.blocked++;
+        }
         return true;
       });
     }
@@ -198,10 +211,12 @@ export class DynamoEventStore implements EventStore {
         avgLatencyMs: latencies.length
           ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length) : null,
         p95LatencyMs: percentile(latencies, 0.95),
+        totalCost: cost === null ? null : Math.round(cost * 1e6) / 1e6,
       },
+      byType: [...types.values()].sort((a, b) => b.total - a.total || a.eventType.localeCompare(b.eventType)),
       series: [...series.values()].sort((a, b) => a.start.localeCompare(b.start)),
       topReasons: [...reasons].map(([reasonCode, count]) => ({ reasonCode, count }))
-        .sort((a, b) => b.count - a.count).slice(0, 5),
+        .sort((a, b) => b.count - a.count || a.reasonCode.localeCompare(b.reasonCode)).slice(0, 3),
       topPrincipals: [...principals.values()]
         .sort((a, b) => b.blocked - a.blocked || b.total - a.total).slice(0, 5),
     };

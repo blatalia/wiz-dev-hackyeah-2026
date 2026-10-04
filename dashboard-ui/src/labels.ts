@@ -21,3 +21,22 @@ export function humanize(key: string): string {
     .join(" ");
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
+
+export function describeValue(key: string, value: unknown): { label: string; text: string } {
+  if (typeof value === "boolean") return { label: humanize(key), text: value ? "Yes" : "No" };
+  if (value === null || value === undefined || value === "") return { label: humanize(key), text: "—" };
+  if (typeof value !== "number") return { label: humanize(key), text: String(value) };
+
+  const unit = /_(seconds|secs|milliseconds|ms)$/i.exec(key)?.[1].toLowerCase();
+  if (unit) {
+    const label = humanize(key.slice(0, -(unit.length + 1)));
+    return unit === "ms" || unit === "milliseconds"
+      ? { label, text: `${Math.round(value).toLocaleString("en-US")} ms` }
+      : { label, text: `${value.toFixed(2)} s` };
+  }
+  if (/cost|price|spend/i.test(key)) return { label: humanize(key), text: `$${value.toFixed(4)}` };
+  return {
+    label: humanize(key),
+    text: value.toLocaleString("en-US", { maximumFractionDigits: Number.isInteger(value) ? 0 : 2 }),
+  };
+}
