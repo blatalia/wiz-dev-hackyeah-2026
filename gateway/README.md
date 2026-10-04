@@ -189,3 +189,11 @@ python -m unittest discover -s gateway/tests -v
 The API tests use FastAPI's test client with mocked guardrails. Guardrail tests use
 mocked provider SDKs and require no credentials. API tests skip if their HTTP test
 dependencies are unavailable.
+
+Direct positive/negative guardrail validation lives separately in
+[`validation_tests`](validation_tests/README.md). It uses runtime LLM/PII
+credentials and prints a terminal results table without starting FastAPI:
+
+```bash
+python -m gateway.validation_tests
+```
