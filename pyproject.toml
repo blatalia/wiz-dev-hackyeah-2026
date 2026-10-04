@@ -9,6 +9,7 @@ dependencies = [
     "torch>=2.2,<3.0",
     "numpy>=1.26,<2.0",
     "dotenv",
+    "openai>=1.0,<3.0",
     "pyyaml>=6.0,<7.0",
     "boto3>=1.34,<2.0",
     "bitsandbytes",
