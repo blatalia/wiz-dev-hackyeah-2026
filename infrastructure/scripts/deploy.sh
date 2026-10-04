@@ -132,4 +132,15 @@ else
     --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5
 fi
 
+if aws dynamodb describe-table --region "$REGION" --table-name ai-gateway-metrics >/dev/null 2>&1; then
+  echo "Table ai-gateway-metrics already exists, skipping creation."
+else
+  aws dynamodb create-table \
+    --region "$REGION" \
+    --table-name ai-gateway-metrics \
+    --attribute-definitions AttributeName=pk,AttributeType=S AttributeName=sk,AttributeType=S \
+    --key-schema AttributeName=pk,KeyType=HASH AttributeName=sk,KeyType=RANGE \
+    --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5
+fi
+
 echo "Done."

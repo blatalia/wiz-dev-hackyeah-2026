@@ -176,27 +176,27 @@ LOG_DIR = Path(os.environ.get("GATEWAY_LOG_DIR", Path(__file__).resolve().parent
 METRICS_LOG_PATH = LOG_DIR / "metrics.json"
 EVENTS_LOG_PATH = LOG_DIR / "events.jsonl"
 DYNAMODB_REGION = os.environ.get("AWS_REGION", "eu-north-1")
-DYNAMODB_TABLE_NAME = os.environ.get("EVENTS_TABLE", "ai-gateway-request-events")
+DYNAMODB_EVENTS_TABLE = os.environ.get("EVENTS_TABLE", "ai-gateway-request-events")
+DYNAMODB_METRICS_TABLE = os.environ.get("METRICS_TABLE", "ai-gateway-metrics")
 _log_lock = Lock()
 logger = logging.getLogger(__name__)
-_dynamodb_table = None
+_dynamodb_tables: dict[str, Any] = {}
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _table():
-    global _dynamodb_table
-    if _dynamodb_table is None:
+def _table(table_name: str):
+    if table_name not in _dynamodb_tables:
         dynamodb = boto3.resource(
             "dynamodb",
             region_name=DYNAMODB_REGION,
             config=Config(connect_timeout=2, read_timeout=2, retries={"max_attempts": 1}),
             endpoint_url=os.environ.get("DYNAMODB_ENDPOINT") or None,
         )
-        _dynamodb_table = dynamodb.Table(DYNAMODB_TABLE_NAME)
-    return _dynamodb_table
+        _dynamodb_tables[table_name] = dynamodb.Table(table_name)
+    return _dynamodb_tables[table_name]
 
 
 def _dynamodb_value(value: Any) -> Any:
@@ -209,8 +209,8 @@ def _dynamodb_value(value: Any) -> Any:
     return value
 
 
-def _put_dynamodb(item: dict[str, Any]) -> None:
-    _table().put_item(Item=_dynamodb_value(item))
+def _put_dynamodb(table_name: str, item: dict[str, Any]) -> None:
+    _table(table_name).put_item(Item=_dynamodb_value(item))
 
 
 def _log_event(
@@ -238,6 +238,7 @@ def _log_event(
             day = timestamp[:10]
             outcome = "ALLOWED" if is_safe else "BLOCKED"
             _put_dynamodb(
+                DYNAMODB_EVENTS_TABLE,
                 {
                     "pk": f"DAY#{day}",
                     "sk": f"{timestamp}#{event_id}",
@@ -252,6 +253,7 @@ def _log_event(
                 }
             )
             _put_dynamodb(
+                DYNAMODB_METRICS_TABLE,
                 {
                     "pk": "METRICS",
                     "sk": "CURRENT",

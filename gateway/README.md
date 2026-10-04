@@ -110,6 +110,10 @@ The gateway logs `Total tokens spent: <total> | Total cost: $<total>` after each
 processed chat turn. Detailed per-event metrics (`metrics.json`, `events.jsonl`)
 are written under `GATEWAY_LOG_DIR` (default `/home/gateway/logs` in the
 container image, writable by the non-root `gateway` user the process runs as).
+The gateway also writes event records to the DynamoDB table named by
+`EVENTS_TABLE` and aggregate metrics to `METRICS_TABLE` (default
+`ai-gateway-metrics`). Both tables use `pk`/`sk` keys and are provisioned by
+`infrastructure/scripts/deploy.sh`.
 
 ## Docker
 
